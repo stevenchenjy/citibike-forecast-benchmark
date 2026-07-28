@@ -46,7 +46,7 @@ Each station-day searches every feasible starting inventory using the model’s 
 
 ## Limits and next work
 
-Observed trips are treated as realized demand, so stockouts/capacity constraints can censor latent demand. The source’s repeated/nonexistent DST labels and three raw events outside the 2018 scope are documented in the data audit. Archived GBFS availability and forecast-vintage weather are future work. The optional Poisson GRU remains gated on earlier audits.
+Observed trips are treated as realized demand, so stockouts/capacity constraints can censor latent demand. The source’s repeated/nonexistent DST labels and three raw events outside the 2018 scope are documented in the data audit. Archived GBFS availability and forecast-vintage weather are future work.
 
 ## Observed-weather hindsight upper bound
 
@@ -60,6 +60,25 @@ Observed trips are treated as realized demand, so stockouts/capacity constraints
 | historical_average | two_hour  |                                       4.0896 |           4.0896 |                          0.0000 |
 | lightgbm_poisson   | two_hour  |                                       2.8305 |           2.9036 |                          0.0731 |
 | poisson_glm        | two_hour  |                                       4.1771 |           4.8428 |                          0.6657 |
+
+## Optional compact Poisson GRU
+
+This no-weather model was added only after the baseline, decision, report, and audit gates passed. It uses 24-hour origin-ending pickup/return histories, station embeddings, Poisson negative log-likelihood, fixed seeds, and validation early stopping. The capped run used at most 10,000 training and 5,000 validation examples per fit, 5 epochs, and 95.8 total fitting seconds.
+
+| model              | track     |    mae |   rmse |   wape |   total_failures |   service_level |   average_regret |
+|:-------------------|:----------|-------:|-------:|-------:|-----------------:|----------------:|-----------------:|
+| historical_average | day_ahead | 4.0896 | 6.9317 | 0.5101 |            64546 |          0.9540 |           4.3069 |
+| poisson_gru        | day_ahead | 4.4192 | 7.8537 | 0.5512 |            71172 |          0.9487 |           6.9728 |
+| poisson_gru        | two_hour  | 3.4463 | 6.3320 | 0.4299 |            71172 |          0.9487 |           6.9728 |
+| historical_average | two_hour  | 4.0896 | 6.9317 | 0.5101 |            64546 |          0.9540 |           4.3069 |
+
+The compact GRU improves the two-hour MAE over historical average but does not beat LightGBM; it is worse day-ahead and has more primary-ordering simulated failures than historical average. It is retained as a negative/limited-capacity result rather than tuned until it wins. The installed PyTorch MPS backend, and CPU batches above 16, exited natively during the full workload; the accepted run therefore uses the tested deterministic CPU batch-size-16 fallback.
+
+- [GRU forecast metrics](runs/poisson_gru_no_weather_0eab625edb6e/forecast_metrics.csv)
+- [GRU bootstrap comparisons](runs/poisson_gru_no_weather_0eab625edb6e/bootstrap_comparisons.csv)
+- [GRU decision metrics](runs/poisson_gru_no_weather_0eab625edb6e/decision_metrics.csv)
+- [GRU runtime metrics](runs/poisson_gru_no_weather_0eab625edb6e/runtime_metrics.csv)
+- [GRU compact summary](runs/poisson_gru_no_weather_0eab625edb6e/gru_summary.csv)
 
 ## Machine-readable outputs
 
@@ -84,3 +103,4 @@ Observed trips are treated as realized demand, so stockouts/capacity constraints
 - [Figure: core_no_weather_e474ce35b5c7_station_519_forecast](figures/core_no_weather_e474ce35b5c7_station_519_forecast.png)
 - [Figure: core_no_weather_e474ce35b5c7_lightgbm_importance](figures/core_no_weather_e474ce35b5c7_lightgbm_importance.png)
 - [Figure: observed_weather_hindsight_upper_bound_weather_sensitivity](figures/observed_weather_hindsight_upper_bound_weather_sensitivity.png)
+- [Figure: poisson_gru_no_weather_0eab625edb6e_comparison](figures/poisson_gru_no_weather_0eab625edb6e_comparison.png)

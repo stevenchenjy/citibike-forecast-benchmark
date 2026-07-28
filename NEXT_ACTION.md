@@ -1,7 +1,7 @@
 # Next Action
 
 ```bash
-uv sync --extra dev --extra deep --no-editable --reinstall-package citibike-forecast-benchmark
+make reproduce-smoke && make reproduce-core
 ```
 
-Install the declared modern PyTorch optional dependency before implementing the gated compact Poisson GRU. Preserve the accepted no-weather core and weather-sensitivity artifacts; the GRU must run as a separate no-weather model addition with deterministic CPU/MPS-safe execution, Poisson NLL, early stopping, and a capped training budget.
+Run the two documented clean-checkout reproduction workflows as the final acceptance audit. Verify that smoke writes its isolated integration report, core restores the five-model canonical tables and final report, and all saved-manifest hashes and report links resolve before marking the project complete.

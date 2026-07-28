@@ -21,6 +21,7 @@ from sklearn.preprocessing import OneHotEncoder, StandardScaler
 from citibike_benchmark.config import load_config
 from citibike_benchmark.constants import PROJECT_ROOT, TIMEZONE
 from citibike_benchmark.evaluation.metrics import forecast_metrics
+from citibike_benchmark.models.poisson_gru import fit_predict_poisson_gru
 from citibike_benchmark.evaluation.bootstrap import paired_mean_difference_ci
 from citibike_benchmark.utils.io import sha256_file, write_json
 from citibike_benchmark.utils.reproducibility import enrich_experiment_manifest
@@ -101,6 +102,7 @@ def _prepare_feature_panel(panel: pd.DataFrame) -> pd.DataFrame:
     result = panel.sort_values(["station_id", "timestamp"]).copy()
     valid = result["data_complete"]
     by_station = result.groupby("station_id", sort=False)
+    result["origin_sequence_index"] = by_station.cumcount().astype("int16")
     availability = valid.astype("int8")
     for target in TARGETS:
         observed = result[target].where(valid)
@@ -149,7 +151,7 @@ def _examples_for_days(features: pd.DataFrame, days: tuple[object, ...], track: 
     else:
         raise ValueError(f"Unknown track: {track}")
     feature_columns = [column for column in features.columns if column.endswith(("_lag_1", "_lag_2", "_lag_3", "_lag_6", "_lag_12", "_lag_24", "_lag_48", "_lag_168")) or "rolling_" in column or column in {"recent_pickup_return_balance", "station_capacity"}]
-    origins = features.loc[:, ["station_id", "timestamp", "data_complete", *feature_columns]].rename(columns={"timestamp": "origin_timestamp", "data_complete": "origin_data_complete"})
+    origins = features.loc[:, ["station_id", "timestamp", "data_complete", "origin_sequence_index", *feature_columns]].rename(columns={"timestamp": "origin_timestamp", "data_complete": "origin_data_complete"})
     examples = examples.merge(origins, on=["station_id", "origin_timestamp"], how="left", validate="many_to_one")
     return examples.loc[examples["origin_data_complete"].fillna(False)].reset_index(drop=True)
 
@@ -222,7 +224,7 @@ def _fit_lgbm(train: pd.DataFrame, predict: pd.DataFrame, target: str, parameter
     return prediction, model, fit_seconds, perf_counter() - start
 
 
-def _ml_predictions(model_name: str, train: pd.DataFrame, validation: pd.DataFrame, test: pd.DataFrame, target: str, config: dict[str, Any], models_path: Path, fold: int, track: str) -> tuple[np.ndarray, dict[str, Any]]:
+def _ml_predictions(model_name: str, train: pd.DataFrame, validation: pd.DataFrame, test: pd.DataFrame, target: str, config: dict[str, Any], models_path: Path, fold: int, track: str, feature_panel: pd.DataFrame) -> tuple[np.ndarray, dict[str, Any]]:
     candidate_rows: list[dict[str, Any]] = []
     seed = int(config["run"]["seed"])
     if model_name == "poisson_glm":
@@ -241,6 +243,14 @@ def _ml_predictions(model_name: str, train: pd.DataFrame, validation: pd.DataFra
         chosen = min(candidate_rows, key=lambda row: row["validation_mae"])
         combined = pd.concat([train, validation], ignore_index=True)
         prediction, model, fit_seconds, prediction_seconds = _fit_lgbm(combined, test, target, chosen, seed)
+    elif model_name == "poisson_gru":
+        chosen = dict(config["models"]["poisson_gru"])
+        model_path = models_path / f"fold{fold}_{track}_{model_name}_{target}.pt"
+        prediction, gru_details = fit_predict_poisson_gru(train, validation, test, feature_panel, target, chosen, seed, model_path)
+        return prediction, {
+            "model": model_name, "fold": fold, "track": track, "target_type": target,
+            **gru_details,
+        }
     else:
         raise ValueError(f"Unsupported ML model: {model_name}")
     models_path.mkdir(parents=True, exist_ok=True)
@@ -454,7 +464,7 @@ def run_backtest(config_path: str | Path) -> dict[str, Any]:
             _cached_runtime_rows(run_id),
             int(config["run"]["seed"]),
             int(config["evaluation"]["bootstrap_replicates"]),
-            primary_no_weather=not weather_enabled,
+            primary_no_weather=config["run"]["name"] == "core_no_weather",
         )
         weather_paths = _write_weather_sensitivity(run_id, cached_predictions) if weather_enabled else ()
         _refresh_manifest_output_hashes(run_id, prediction_path, run_tables, weather_paths)
@@ -491,9 +501,9 @@ def run_backtest(config_path: str | Path) -> dict[str, Any]:
                     valid = np.isfinite(prediction)
                     all_predictions.append(_prediction_rows(scoring_test.loc[valid].reset_index(drop=True), prediction[valid], model_name, target, fold.fold, track))
                     runtime_rows.append({"model": model_name, "fold": fold.fold, "track": track, "target_type": target, "fit_seconds": 0.0, "prediction_seconds": np.nan, "serialized_model_bytes": 0, "feature_count": 0, "tuned_configurations": 0})
-                for model_name in ("poisson_glm", "lightgbm_poisson"):
+                for model_name in ("poisson_glm", "lightgbm_poisson", "poisson_gru"):
                     if model_name in enabled:
-                        prediction, details = _ml_predictions(model_name, train, validation, scoring_test, target, config, models_path, fold.fold, track)
+                        prediction, details = _ml_predictions(model_name, train, validation, scoring_test, target, config, models_path, fold.fold, track, features)
                         all_predictions.append(_prediction_rows(scoring_test, prediction, model_name, target, fold.fold, track))
                         runtime_rows.append({key: value for key, value in details.items() if key not in {"selected_configuration", "tried_configurations"}})
     predictions = pd.concat(all_predictions, ignore_index=True)
@@ -505,7 +515,7 @@ def run_backtest(config_path: str | Path) -> dict[str, Any]:
         runtime_rows,
         int(config["run"]["seed"]),
         int(config["evaluation"]["bootstrap_replicates"]),
-        primary_no_weather=not weather_enabled,
+        primary_no_weather=config["run"]["name"] == "core_no_weather",
     )
     tables = PROJECT_ROOT / "reports/tables"
     tables.mkdir(parents=True, exist_ok=True)

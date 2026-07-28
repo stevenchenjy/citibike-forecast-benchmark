@@ -1,0 +1,28 @@
+extends: core.yaml
+run:
+  name: poisson_gru_no_weather
+  seed: 20260728
+data:
+  # A profile-specific immutable panel avoids changing the accepted core cache.
+  panel_path: data/processed/hourly_panel_poisson_gru_no_weather
+models:
+  enabled: [historical_average, poisson_gru]
+  poisson_gru:
+    sequence_length: 24
+    hidden_size: 24
+    station_embedding_size: 8
+    head_size: 24
+    learning_rate: 0.003
+    weight_decay: 0.0001
+    batch_size: 16
+    max_epochs: 5
+    patience: 2
+    min_delta: 0.0001
+    max_train_examples: 10000
+    max_validation_examples: 5000
+    # The installed PyTorch MPS backend and CPU GRU batches above 16 both
+    # exited 139 on the full workload. CPU batch size 16 completed a full
+    # held-out prediction pass, so it is the documented safe fallback.
+    device: cpu
+weather:
+  enabled: false

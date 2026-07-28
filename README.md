@@ -20,4 +20,6 @@ On macOS the bootstrap script installs Homebrew `libomp` when necessary because 
 
 The primary comparison excludes weather and evaluates seasonal naive, historical average, recent average, global Poisson GLM, and global LightGBM Poisson under strict chronological splits. Pickups and returns are separate targets. The weather sensitivity is explicitly named `observed_weather_hindsight_upper_bound`; observed future weather is not available in live operation.
 
+The gated optional compact Poisson GRU can be reproduced after the core run with `uv sync --extra dev --extra deep --no-editable` followed by `make gru`. Its artifacts are kept separate from the primary five-model tables.
+
 See [PROJECT_STATE.md](PROJECT_STATE.md) for the resumable work state and [NEXT_ACTION.md](NEXT_ACTION.md) for the one next executable action.

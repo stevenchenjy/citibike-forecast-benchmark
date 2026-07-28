@@ -2,6 +2,7 @@
 from __future__ import annotations
 
 from pathlib import Path
+import shutil
 from typing import Any
 
 import pandas as pd
@@ -62,8 +63,16 @@ def run_decision_evaluation(config_path: str | Path) -> dict[str, Any]:
         mean_absolute_starting_inventory_error=("selected_starting_inventory_error", lambda x: x.abs().mean()), station_days=("date", "size"),
     )
     metrics["percentage_within_one_failure_of_oracle"] *= 100
-    tables = PROJECT_ROOT / "reports/tables"
-    tables.mkdir(parents=True, exist_ok=True)
-    metrics.to_csv(tables / "decision_metrics.csv", index=False)
-    detail.to_csv(PROJECT_ROOT / "reports/runs" / f"{run_id}_decision_detail.csv", index=False)
-    return {"run_id": run_id, "station_days": len(detail), "decision_metrics": str((tables / "decision_metrics.csv").relative_to(PROJECT_ROOT))}
+    run_directory = PROJECT_ROOT / "reports/runs" / run_id
+    run_directory.mkdir(parents=True, exist_ok=True)
+    metrics_path = run_directory / "decision_metrics.csv"
+    metrics.to_csv(metrics_path, index=False)
+    detail.to_csv(run_directory / "decision_detail.csv", index=False)
+    # Required canonical decision tables are reserved for the accepted primary
+    # no-weather comparison; optional model additions remain auditable without
+    # replacing those results.
+    if config["run"]["name"] == "core_no_weather":
+        canonical = PROJECT_ROOT / "reports/tables/decision_metrics.csv"
+        canonical.parent.mkdir(parents=True, exist_ok=True)
+        shutil.copy2(metrics_path, canonical)
+    return {"run_id": run_id, "station_days": len(detail), "decision_metrics": str(metrics_path.relative_to(PROJECT_ROOT))}

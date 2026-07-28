@@ -44,7 +44,8 @@ def _core_figures(run_id: str, predictions: pd.DataFrame, forecast: pd.DataFrame
     output.append(_save(decision_axes[0].get_figure(), figures / f"{run_id}_decisions.png"))
     runtime_plot = runtime.groupby("model", as_index=True).fit_seconds.sum().sort_values()
     output.append(_save(runtime_plot.plot.bar(figsize=(9, 4), ylabel="Fit seconds", title="Model fit time").get_figure(), figures / f"{run_id}_runtime.png"))
-    day_ahead = predictions.query("track == 'day_ahead' and fold == 2 and model in ['lightgbm_poisson', 'historical_average']").copy()
+    final_fold = int(predictions["fold"].max())
+    day_ahead = predictions.query("track == 'day_ahead' and fold == @final_fold and model in ['lightgbm_poisson', 'historical_average']").copy()
     day_ahead["date"] = pd.to_datetime(day_ahead["timestamp"]).dt.date
     station_ids = sorted(day_ahead.station_id.astype(str).unique())
     representative = [station_ids[0], station_ids[len(station_ids) // 2], station_ids[-1]]
@@ -84,8 +85,55 @@ def _weather_figure(weather: pd.DataFrame) -> Path:
     )
 
 
-def _core_report(run_id: str, figures: list[Path], predictions: pd.DataFrame, forecast: pd.DataFrame, bootstrap: pd.DataFrame, decision: pd.DataFrame, weather: pd.DataFrame | None) -> Path:
-    report = PROJECT_ROOT / "reports/final_report.md"
+def _optional_gru_section() -> tuple[str, Path | None]:
+    """Summarize the gated no-weather GRU without replacing core artifacts."""
+    config_path = PROJECT_ROOT / "configs/poisson_gru.yaml"
+    if not config_path.exists():
+        return "", None
+    config = load_config(config_path)
+    run_id = f"{config['run']['name']}_{sha256_file(config_path)[:12]}"
+    predictions_path = PROJECT_ROOT / "artifacts/predictions" / f"{run_id}.parquet"
+    decision_path = PROJECT_ROOT / "reports/runs" / run_id / "decision_metrics.csv"
+    runtime_path = PROJECT_ROOT / "reports/runs" / run_id / "runtime_metrics.csv"
+    if not all(path.exists() for path in (predictions_path, decision_path, runtime_path)):
+        return "", None
+    predictions = pd.read_parquet(predictions_path)
+    rows = []
+    for (model, track), group in predictions.groupby(["model", "track"], sort=True):
+        metrics = forecast_metrics(group.actual.to_numpy(), group.prediction.to_numpy())
+        rows.append({"model": model, "track": track, "mae": metrics["mae"], "rmse": metrics["rmse"], "wape": metrics["wape"]})
+    summary = pd.DataFrame(rows).sort_values(["track", "mae"])
+    decisions = pd.read_csv(decision_path).query("ordering == 'pickups_then_returns'").groupby("model", as_index=False).agg(
+        total_failures=("total_failures", "sum"), service_level=("fulfilled_demand_rate", "mean"), average_regret=("average_regret_vs_oracle", "mean"),
+    )
+    summary_path = PROJECT_ROOT / "reports/runs" / run_id / "gru_summary.csv"
+    summary.merge(decisions, on="model", how="left").to_csv(summary_path, index=False)
+    figures = PROJECT_ROOT / "reports/figures"
+    figures.mkdir(parents=True, exist_ok=True)
+    pivot = summary.pivot(index="model", columns="track", values="mae").sort_index()
+    figure = _save(
+        pivot.plot.bar(figsize=(8, 4), rot=20, ylabel="MAE", title="Optional compact Poisson GRU versus historical average").get_figure(),
+        figures / f"{run_id}_comparison.png",
+    )
+    settings = config["models"]["poisson_gru"]
+    runtime = pd.read_csv(runtime_path).query("model == 'poisson_gru'")
+    fit_seconds = runtime.fit_seconds.sum()
+    section = (
+        "## Optional compact Poisson GRU\n\n"
+        "This no-weather model was added only after the baseline, decision, report, and audit gates passed. It uses 24-hour origin-ending pickup/return histories, station embeddings, Poisson negative log-likelihood, fixed seeds, and validation early stopping. "
+        f"The capped run used at most {settings['max_train_examples']:,} training and {settings['max_validation_examples']:,} validation examples per fit, {settings['max_epochs']} epochs, and {fit_seconds:.1f} total fitting seconds.\n\n"
+        + summary.merge(decisions, on="model", how="left").to_markdown(index=False, floatfmt=".4f") + "\n\n"
+        "The compact GRU improves the two-hour MAE over historical average but does not beat LightGBM; it is worse day-ahead and has more primary-ordering simulated failures than historical average. It is retained as a negative/limited-capacity result rather than tuned until it wins. The installed PyTorch MPS backend, and CPU batches above 16, exited natively during the full workload; the accepted run therefore uses the tested deterministic CPU batch-size-16 fallback.\n\n"
+        f"- [GRU forecast metrics](runs/{run_id}/forecast_metrics.csv)\n"
+        f"- [GRU bootstrap comparisons](runs/{run_id}/bootstrap_comparisons.csv)\n"
+        f"- [GRU decision metrics](runs/{run_id}/decision_metrics.csv)\n"
+        f"- [GRU runtime metrics](runs/{run_id}/runtime_metrics.csv)\n"
+        f"- [GRU compact summary](runs/{run_id}/gru_summary.csv)\n\n"
+    )
+    return section, figure
+
+
+def _core_report(run_id: str, figures: list[Path], predictions: pd.DataFrame, forecast: pd.DataFrame, bootstrap: pd.DataFrame, decision: pd.DataFrame, weather: pd.DataFrame | None, gru_section: str, report: Path, title: str, design: str, output_links: str) -> Path:
     summary_rows = []
     for (model, track), group in predictions.groupby(["model", "track"], sort=True):
         metric = forecast_metrics(group.actual.to_numpy(), group.prediction.to_numpy())
@@ -113,9 +161,8 @@ def _core_report(run_id: str, figures: list[Path], predictions: pd.DataFrame, fo
         )
         weather_table_link = "- [Observed-weather hindsight sensitivity](tables/weather_sensitivity.csv)\n"
     report.write_text(
-        "# Citi Bike Forecast Benchmark — Core No-Weather Report\n\n"
-        "## Design\n\n"
-        "This primary comparison excludes weather. It uses the official VP-RNN 30-station source at 60-minute resolution, separate pickup and return counts, and three strict expanding chronological folds. The test windows are 2018-10-08–11-05, 2018-11-06–12-03, and 2018-12-04–12-31. The 60 source-DST-ambiguous rows are retained in the panel but excluded whenever their use would make a model support unequal.\n\n"
+        f"# {title}\n\n"
+        "## Design\n\n" + design + "\n\n"
         "## Forecast accuracy\n\n" + summary.to_markdown(index=False, floatfmt=".4f") + "\n\n"
         "Negative MAE improvement means worse than historical average; positive means better. Recent average is the direct test of whether near-term history captures most obtainable improvement. Peak-period and station-level results are in the linked figures/tables; no causal interpretation is made.\n\n"
         "## Paired uncertainty\n\n" + bootstrap_summary.to_markdown(index=False, floatfmt=".4f") + "\n\n"
@@ -123,11 +170,10 @@ def _core_report(run_id: str, figures: list[Path], predictions: pd.DataFrame, fo
         "## Inventory decisions\n\n" + decision_operational.to_markdown(index=False, floatfmt=".4f") + "\n\n"
         "Each station-day searches every feasible starting inventory using the model’s day-ahead path, then replays realized aggregate hourly demand. Regret is relative to a realized-path oracle. Pickup-then-return is the main aggregate convention; reversed ordering is a reported sensitivity, not an operational assertion. Truck routing is outside scope.\n\n"
         "## Limits and next work\n\n"
-        "Observed trips are treated as realized demand, so stockouts/capacity constraints can censor latent demand. The source’s repeated/nonexistent DST labels and three raw events outside the 2018 scope are documented in the data audit. Archived GBFS availability and forecast-vintage weather are future work. The optional Poisson GRU remains gated on earlier audits.\n\n"
+        "Observed trips are treated as realized demand, so stockouts/capacity constraints can censor latent demand. The source’s repeated/nonexistent DST labels and three raw events outside the 2018 scope are documented in the data audit. Archived GBFS availability and forecast-vintage weather are future work.\n\n"
         + weather_section +
-        "## Machine-readable outputs\n\n"
-        "- [Forecast metrics](tables/forecast_metrics.csv)\n- [Station metrics](tables/station_metrics.csv)\n- [Bootstrap comparisons](tables/bootstrap_comparisons.csv)\n- [Decision metrics](tables/decision_metrics.csv)\n- [Runtime metrics](tables/runtime_metrics.csv)\n- [Data quality](tables/data_quality.csv)\n"
-        + weather_table_link + "\n"
+        gru_section +
+        "## Machine-readable outputs\n\n" + output_links + weather_table_link + "\n"
         "## Figures\n\n" + links + "\n",
         encoding="utf-8",
     )
@@ -140,7 +186,8 @@ def build_report(config_path: str | Path) -> dict[str, str]:
         config_path = PROJECT_ROOT / config_path
     config = load_config(config_path)
     run_id = f"{config['run']['name']}_{sha256_file(config_path)[:12]}"
-    tables = PROJECT_ROOT / "reports/tables"
+    primary = config["run"]["name"] == "core_no_weather"
+    tables = PROJECT_ROOT / "reports/tables" if primary else PROJECT_ROOT / "reports/runs" / run_id
     required = {name: tables / name for name in ("forecast_metrics.csv", "station_metrics.csv", "bootstrap_comparisons.csv", "decision_metrics.csv", "runtime_metrics.csv")}
     missing = [name for name, path in required.items() if not path.exists()]
     if missing:
@@ -148,8 +195,21 @@ def build_report(config_path: str | Path) -> dict[str, str]:
     predictions = pd.read_parquet(PROJECT_ROOT / "artifacts/predictions" / f"{run_id}.parquet")
     figures = _core_figures(run_id, predictions, pd.read_csv(required["forecast_metrics.csv"]), pd.read_csv(required["station_metrics.csv"]), pd.read_csv(required["decision_metrics.csv"]), pd.read_csv(required["runtime_metrics.csv"]))
     weather_path = tables / "weather_sensitivity.csv"
-    weather = pd.read_csv(weather_path) if weather_path.exists() else None
+    weather = pd.read_csv(weather_path) if primary and weather_path.exists() else None
     if weather is not None:
         figures.append(_weather_figure(weather))
-    report = _core_report(run_id, figures, predictions, pd.read_csv(required["forecast_metrics.csv"]), pd.read_csv(required["bootstrap_comparisons.csv"]), pd.read_csv(required["decision_metrics.csv"]), weather)
+    gru_section, gru_figure = _optional_gru_section() if primary else ("", None)
+    if gru_figure is not None:
+        figures.append(gru_figure)
+    if primary:
+        report_path = PROJECT_ROOT / "reports/final_report.md"
+        title = "Citi Bike Forecast Benchmark — Core No-Weather Report"
+        design = "This primary comparison excludes weather. It uses the official VP-RNN 30-station source at 60-minute resolution, separate pickup and return counts, and three strict expanding chronological folds. The test windows are 2018-10-08–11-05, 2018-11-06–12-03, and 2018-12-04–12-31. The 60 source-DST-ambiguous rows are retained in the panel but excluded whenever their use would make a model support unequal."
+        output_links = "- [Forecast metrics](tables/forecast_metrics.csv)\n- [Station metrics](tables/station_metrics.csv)\n- [Bootstrap comparisons](tables/bootstrap_comparisons.csv)\n- [Decision metrics](tables/decision_metrics.csv)\n- [Runtime metrics](tables/runtime_metrics.csv)\n- [Data quality](tables/data_quality.csv)\n"
+    else:
+        report_path = PROJECT_ROOT / "reports" / f"{run_id}_report.md"
+        title = "Citi Bike Forecast Benchmark — Smoke Integration Report"
+        design = "This no-weather smoke integration profile uses five deterministic source stations, 60 consecutive available days, one strict chronological split, and separate pickup and return targets. It verifies the complete data-to-report path; it is not a core-scale conclusion."
+        output_links = f"- [Forecast metrics](runs/{run_id}/forecast_metrics.csv)\n- [Station metrics](runs/{run_id}/station_metrics.csv)\n- [Bootstrap comparisons](runs/{run_id}/bootstrap_comparisons.csv)\n- [Decision metrics](runs/{run_id}/decision_metrics.csv)\n- [Runtime metrics](runs/{run_id}/runtime_metrics.csv)\n- [Data quality](runs/{run_id}/data_quality.csv)\n"
+    report = _core_report(run_id, figures, predictions, pd.read_csv(required["forecast_metrics.csv"]), pd.read_csv(required["bootstrap_comparisons.csv"]), pd.read_csv(required["decision_metrics.csv"]), weather, gru_section, report_path, title, design, output_links)
     return {"report": str(report.relative_to(PROJECT_ROOT)), "figure_count": str(len(figures))}

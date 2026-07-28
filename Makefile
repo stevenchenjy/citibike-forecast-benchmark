@@ -1,7 +1,7 @@
 PYTHON ?= uv run --no-editable python
 CLI = $(PYTHON) -m citibike_benchmark.cli
 
-.PHONY: setup data inspect test smoke core decision report reproduce-smoke reproduce-core
+.PHONY: setup data inspect test smoke core gru decision report reproduce-smoke reproduce-core
 
 setup:
 	bash scripts/bootstrap.sh
@@ -24,6 +24,12 @@ smoke:
 core:
 	$(CLI) build --config configs/core.yaml
 	$(CLI) backtest --config configs/core.yaml
+
+gru:
+	$(CLI) build --config configs/poisson_gru.yaml
+	$(CLI) backtest --config configs/poisson_gru.yaml
+	$(CLI) decision --config configs/poisson_gru.yaml
+	$(CLI) report --config configs/core.yaml
 
 decision:
 	$(CLI) decision --config configs/core.yaml
