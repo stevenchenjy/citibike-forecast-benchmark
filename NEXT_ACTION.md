@@ -1,7 +1,3 @@
 # Next Action
 
-```bash
-make reproduce-smoke && make reproduce-core
-```
-
-Run the two documented clean-checkout reproduction workflows as the final acceptance audit. Verify that smoke writes its isolated integration report, core restores the five-model canonical tables and final report, and all saved-manifest hashes and report links resolve before marking the project complete.
+No required action remains. The repository is in a resumable completed state; optional future work is archived GBFS availability and forecast-vintage weather, neither of which is part of this version.

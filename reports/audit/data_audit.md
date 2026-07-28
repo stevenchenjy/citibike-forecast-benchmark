@@ -1,9 +1,9 @@
 # Source Data Audit
 
-Audit timestamp: `2026-07-28T18:20:46.304979+00:00`<br>
+Audit timestamp: `2026-07-28T19:52:46.166286+00:00`<br>
 Source: `https://github.com/DanieleGammelli/variational-poisson-rnn.git`<br>
 Pinned source commit: `abf77f79fc64be75ae9102ec8d537f77ed9c5f8f`<br>
-Download date: `2026-07-28T18:18:08.083629+00:00`
+Download date: `2026-07-28T19:48:36.719181+00:00`
 
 ## Source and schema
 
@@ -51,4 +51,4 @@ The machine-readable audit and hashes are in `data/manifests/source_manifest.jso
 
 ## Canonical panel validation
 
-The builder produced a 43,800-row five-station smoke panel and a 262,800-row 30-station core panel, both stored as partitioned Parquet. Each retained station has exactly 8,760 unique `America/New_York` hourly timestamps from `2018-01-01 00:00` to `2018-12-31 23:00`, including the 23-hour spring-forward and 25-hour fall-back local days. The smoke panel has 10 and the core panel has 60 explicitly incomplete rows (two fall-back rows per station); every other panel target is complete. Generated panel manifests record the profile, source commit, input config hash, station list, row count, and DST policy.
+The builder produces a 43,800-row five-station smoke panel and a 262,800-row 30-station core panel, both stored as partitioned Parquet. Each retained station has exactly 8,760 unique `America/New_York` hourly timestamps from `2018-01-01 00:00` to `2018-12-31 23:00`, including the 23-hour spring-forward and 25-hour fall-back local days. The smoke panel has 10 and the core panel has 60 explicitly incomplete rows (two fall-back rows per station); every other panel target is complete. Generated panel manifests record the profile, source commit, input config hash, station list, row count, and DST policy.

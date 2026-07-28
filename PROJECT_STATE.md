@@ -1,8 +1,8 @@
 # Project State
 
-Status: `IN_PROGRESS`
+Status: `COMPLETE`
 
-Current phase: Milestone 8 — final acceptance audit
+Current phase: Complete
 
 Completed milestones:
 
@@ -14,7 +14,7 @@ Completed milestones:
 - Milestone 5 — core decision-aware evaluation: complete and verified on 2026-07-28.
 - Milestone 6 — observed-weather hindsight sensitivity: complete and verified on 2026-07-28.
 - Milestone 7 — optional compact Poisson GRU: complete and verified on 2026-07-28.
-- Milestone 8 — final report and audits: in final acceptance audit on 2026-07-28.
+- Milestone 8 — final report and audits: complete and verified on 2026-07-28.
 
 Current constraints and decisions:
 
@@ -27,4 +27,4 @@ Current constraints and decisions:
 - Weather result integrity is verified: 1,087,560 nonnegative, non-null predictions cover the same 30 stations, folds, targets, and horizon tracks for historical average, Poisson GLM, and LightGBM. Its run-specific tables live under `reports/runs/observed_weather_hindsight_upper_bound_a4abb742757a/`; canonical `reports/tables/` remains the no-weather primary comparison.
 - The gated `poisson_gru_no_weather_0eab625edb6e` run is separate and no-weather. It has 725,040 nonnegative, non-null predictions with exact historical-average support and a complete separate decision replay. Modern PyTorch MPS and large CPU GRU batches exited natively on this Mac, so the accepted result records the safe deterministic CPU batch-size-16 fallback and its explicit 10,000/5,000 train/validation caps.
 
-Last verified action: direct smoke and core report generation, plus both documented `make reproduce-*` commands, completed successfully. Canonical tables were checked to contain only the required five-model no-weather comparison; GRU and weather artifacts remain run-local. The test suite passed 21 tests.
+Last verified action: both documented `make reproduce-*` workflows completed successfully. The smoke profile writes `reports/smoke_0c68da351c78_report.md`; the core profile restores the five-model canonical tables and final report. All local report links resolve, and every recorded output hash for the core, weather, and GRU manifests matches its file. The test suite passed 21 tests.

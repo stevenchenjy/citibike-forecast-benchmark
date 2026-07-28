@@ -21,6 +21,7 @@ artifacts/run_manifests/**
 reports/figures/**
 reports/tables/**
 reports/runs/**
+reports/*_report.md
 
 # Preserve the repository layout without versioning generated content.
 !data/external/.gitkeep
