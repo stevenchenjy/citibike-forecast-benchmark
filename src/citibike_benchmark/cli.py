@@ -8,6 +8,7 @@ from rich import print
 
 from citibike_benchmark.config import load_config
 from citibike_benchmark.data.download import download_source
+from citibike_benchmark.data.source_adapter import inspect_source, write_data_audit
 
 app = typer.Typer(help="Reproducible Citi Bike forecasting and inventory benchmark.", no_args_is_help=True)
 
@@ -23,7 +24,10 @@ def download() -> None:
 @app.command()
 def inspect() -> None:
     """Inspect the acquired source schema and create its data audit."""
-    raise typer.Exit("Source inspection is completed in Milestone 1 after download.")
+    manifest = inspect_source()
+    report = write_data_audit(manifest)
+    print(f"Audited {len(manifest['station_ids'])} stations at {manifest['source_commit']}")
+    print(f"Wrote {report}")
 
 
 @app.command()

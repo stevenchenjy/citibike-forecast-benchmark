@@ -7,6 +7,7 @@ from datetime import UTC, datetime
 from pathlib import Path
 
 from citibike_benchmark.constants import PROJECT_ROOT, SOURCE_RELATIVE_PATH, SOURCE_REPOSITORY_URL
+from citibike_benchmark.utils.io import write_json
 
 
 @dataclass(frozen=True)
@@ -41,9 +42,17 @@ def download_source(
     if not (path / ".git").exists():
         raise RuntimeError(f"Source path exists but is not a Git checkout: {path}")
     commit = _git(["rev-parse", "HEAD"], cwd=path)
-    return DownloadResult(
+    download = DownloadResult(
         path=path,
         commit=commit,
         downloaded_at=datetime.now(UTC).isoformat(),
         cloned=cloned,
     )
+    write_json(PROJECT_ROOT / "data/manifests/source_download.json", {
+        "repository_url": repository_url,
+        "local_path": str(path.relative_to(PROJECT_ROOT)),
+        "source_commit": download.commit,
+        "download_date": download.downloaded_at,
+        "cloned_this_invocation": download.cloned,
+    })
+    return download

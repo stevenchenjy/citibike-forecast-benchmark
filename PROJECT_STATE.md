@@ -2,17 +2,20 @@
 
 Status: `IN_PROGRESS`
 
-Current phase: Milestone 1 — data acquisition and audit
+Current phase: Milestone 2 — canonical panel
 
 Completed milestones:
 
 - Milestone 0 — repository and environment: complete and verified on 2026-07-28.
+- Milestone 1 — data acquisition and audit: complete and verified on 2026-07-28.
 
 Current constraints and decisions:
 
 - The authoritative contract is `../citibike_model_comparison_codex_spec.md`, read in full on 2026-07-28.
 - Python 3.11 is required; `uv` is the primary environment manager with `venv + pip` documented as a fallback.
 - The official VP-RNN repository remains the required default source. No field mapping has been assumed before source-schema inspection.
+- The official source is pinned at `abf77f79fc64be75ae9102ec8d537f77ed9c5f8f`; its 30 60-minute station demand files, matching raw event data, station capacities, weather file, schemas, hashes, and licenses are audited in `reports/audit/data_audit.md` and `data/manifests/source_manifest.json`.
+- The source has 24 unzoned civil-hour labels on both 2018 DST transitions. Panel construction must use the documented explicit policy and mark affected rows incomplete; it must not silently treat those labels as unambiguous local instants.
 - The primary comparison will exclude weather. Any later weather run will be named `observed_weather_hindsight_upper_bound`.
 
-Last verified action: `uv run --extra dev pytest` passed 13 tests and `python -m citibike_benchmark.cli --help` passed. The Python 3.11 lockfile and local environment were created successfully.
+Last verified action: `make data`, `make inspect`, and `uv run --extra dev pytest` completed. The test suite passed 14 tests, including validation of the acquired official source schema.
