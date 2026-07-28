@@ -45,3 +45,10 @@
 - Discovered a required-support mismatch caused by seasonal-naive’s seven-day lag reaching an explicitly ambiguous DST observation for 60 fold-1 target rows. Preserved exact comparability by excluding those same rows from every model’s score, rather than imputing or pretending the seasonal value exists. The accepted run has 1,812,600 nonnegative, non-null predictions across all five models, 30 stations, three folds, two tracks, and separate pickup/return targets.
 - Wrote complete forecast, station, runtime, and paired day-level bootstrap tables. The current core run manifest is `artifacts/run_manifests/core_no_weather_e474ce35b5c7.json`.
 - Verified `uv run --no-editable --extra dev pytest`: 18 passed. Manual output checks confirmed identical model support by fold/track/target, zero negative predictions, zero null targets/predictions, and full required 2018 test coverage.
+
+## 2026-07-28 — Milestones 5 and 8 complete for no-weather core
+
+- Ran exact station-day inventory evaluation for every core day-ahead forecast under both aggregate within-hour orderings. Every model has 2,490 station-days per ordering (the 30 affected DST paths are excluded uniformly), and `decision_metrics.csv` reports failed pickups/returns, total failures, service level, oracle regret, within-one-oracle percentage, and starting-inventory error.
+- Generated the core no-weather final report, ten required no-weather figures, complete forecast/station/bootstrap/decision/runtime/data-quality tables, and `RESULTS_SUMMARY.md`. The report records that LightGBM improved forecast MAE but did not yield the fewest aggregate simulated failures under the primary ordering.
+- Added `reports/audit/leakage_audit.md` with concrete origin/target timestamp checks and `reports/audit/reproducibility_audit.md` with reproduction evidence. Enriched the run manifest with config content/hash, source and output hashes, packages, hardware, seeds, fold/station lists, runtime, warnings, and fallbacks.
+- Added the declared `tabulate` dependency for reproducible Markdown table generation. Verified `make report` and `uv run --no-editable --extra dev pytest`: 18 passed.

@@ -21,7 +21,8 @@ from citibike_benchmark.config import load_config
 from citibike_benchmark.constants import PROJECT_ROOT, TIMEZONE
 from citibike_benchmark.evaluation.metrics import forecast_metrics
 from citibike_benchmark.evaluation.bootstrap import paired_mean_difference_ci
-from citibike_benchmark.utils.io import sha256_file, write_json
+from citibike_benchmark.utils.io import sha256_file
+from citibike_benchmark.utils.reproducibility import enrich_experiment_manifest
 
 TARGETS = ("pickups", "returns")
 LAGS = (1, 2, 3, 6, 12, 24, 48, 168)
@@ -388,10 +389,16 @@ def run_backtest(config_path: str | Path) -> dict[str, Any]:
     bootstrap_comparisons(predictions, int(config["run"]["seed"]), int(config["evaluation"]["bootstrap_replicates"])).to_csv(tables / "bootstrap_comparisons.csv", index=False)
     pd.DataFrame(runtime_rows).to_csv(runtime_path, index=False)
     manifest = {
-        "run_id": run_id, "timestamp_timezone": TIMEZONE, "config_path": str(config_path.relative_to(PROJECT_ROOT)), "config_sha256": config_hash,
+        "timestamp_timezone": TIMEZONE,
         "weather_enabled": False, "station_ids": sorted(panel["station_id"].unique().tolist()),
         "folds": [{"fold": fold.fold, "train": [str(fold.train_days[0]), str(fold.train_days[-1])], "validation": [str(fold.validation_days[0]), str(fold.validation_days[-1])], "test": [str(fold.test_days[0]), str(fold.test_days[-1])]} for fold in folds],
-        "prediction_path": str(prediction_path.relative_to(PROJECT_ROOT)), "runtime_rows": runtime_rows,
+        "prediction_path": str(prediction_path.relative_to(PROJECT_ROOT)),
+        "output_file_hashes": {str(path.relative_to(PROJECT_ROOT)): sha256_file(path) for path in (prediction_path, tables / "forecast_metrics.csv", tables / "station_metrics.csv", tables / "bootstrap_comparisons.csv", runtime_path)},
+        "runtime_seconds": float(pd.DataFrame(runtime_rows)["fit_seconds"].sum() + pd.DataFrame(runtime_rows)["prediction_seconds"].sum()),
+        "random_seeds": {"global": int(config["run"]["seed"]), "bootstrap": int(config["run"]["seed"])},
+        "warnings": ["GLM convergence warnings, if emitted by sklearn, are retained in execution logs.", "60 target rows were excluded uniformly in fold 1 because seasonal-naive's seven-day lag reaches an explicit DST-ambiguous source hour."],
+        "fallbacks": [],
+        "runtime_rows": runtime_rows,
     }
-    write_json(PROJECT_ROOT / "artifacts/run_manifests" / f"{run_id}.json", manifest)
+    enrich_experiment_manifest(run_id, config_path, manifest)
     return {"run_id": run_id, "prediction_path": str(prediction_path.relative_to(PROJECT_ROOT)), "cached": False}

@@ -2,7 +2,7 @@
 
 Status: `IN_PROGRESS`
 
-Current phase: Milestone 5 and 8 — core decision reporting and audits
+Current phase: Milestone 6 — observed-weather hindsight sensitivity
 
 Completed milestones:
 
@@ -11,6 +11,8 @@ Completed milestones:
 - Milestone 2 — canonical panel: complete and verified on 2026-07-28.
 - Milestone 3 — baseline backtest and smoke report: complete and verified on 2026-07-28.
 - Milestone 4 — statistical and tree-model core backtest: complete and verified on 2026-07-28.
+- Milestone 5 — core decision-aware evaluation: complete and verified on 2026-07-28.
+- Milestone 8 — no-weather core report and audits: complete pending weather-sensitivity additions on 2026-07-28.
 
 Current constraints and decisions:
 
@@ -21,4 +23,4 @@ Current constraints and decisions:
 - The source has 24 unzoned civil-hour labels on both 2018 DST transitions. Panel construction must use the documented explicit policy and mark affected rows incomplete; it must not silently treat those labels as unambiguous local instants.
 - The primary comparison will exclude weather. Any later weather run will be named `observed_weather_hindsight_upper_bound`.
 
-Last verified action: the three-fold 30-station no-weather core backtest completed with 1,812,600 predictions and 18 passing tests. All five models have identical scored support in every fold; generated forecast, station, bootstrap, and runtime tables are present.
+Last verified action: `make decision` and `make report` completed for the accepted core run. The report contains ten required no-weather figures, complete machine-readable core tables, leakage and reproducibility audits, and an enriched run manifest. The test suite passed 18 tests.

@@ -17,7 +17,7 @@ data/manifests/*.json
 artifacts/models/**
 artifacts/predictions/**
 artifacts/feature_importance/**
-artifacts/run_manifests/*.json
+artifacts/run_manifests/**
 reports/figures/**
 reports/tables/**
 reports/runs/**
