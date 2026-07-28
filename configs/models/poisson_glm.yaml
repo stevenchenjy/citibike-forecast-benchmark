@@ -1,3 +1,4 @@
 name: poisson_glm
 estimator: sklearn.linear_model.PoissonRegressor
-alpha_candidates: [0.001, 0.01, 0.1]
+alpha: 0.1
+selection: fixed_regularization_for_cpu_comparability

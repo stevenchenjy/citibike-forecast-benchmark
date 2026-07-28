@@ -15,11 +15,12 @@ from sklearn.compose import ColumnTransformer
 from sklearn.impute import SimpleImputer
 from sklearn.linear_model import PoissonRegressor
 from sklearn.pipeline import Pipeline
-from sklearn.preprocessing import OneHotEncoder
+from sklearn.preprocessing import OneHotEncoder, StandardScaler
 
 from citibike_benchmark.config import load_config
 from citibike_benchmark.constants import PROJECT_ROOT, TIMEZONE
 from citibike_benchmark.evaluation.metrics import forecast_metrics
+from citibike_benchmark.evaluation.bootstrap import paired_mean_difference_ci
 from citibike_benchmark.utils.io import sha256_file, write_json
 
 TARGETS = ("pickups", "returns")
@@ -66,9 +67,9 @@ def make_day_folds(panel: pd.DataFrame, config: dict[str, Any]) -> list[DayFold]
         window = complete_days[:required] if smoke_limit else complete_days[-required:]
         return [DayFold(0, tuple(window[:train_days]), tuple(window[train_days:train_days + validation_days]), tuple(window[-test_days:]))]
     result: list[DayFold] = []
-    latest_start = len(complete_days) - test_days
+    latest_end = len(complete_days)
     for fold in range(folds):
-        test_end = latest_start - (folds - 1 - fold) * test_days
+        test_end = latest_end - (folds - 1 - fold) * test_days
         test_start = test_end - test_days
         validation_start = test_start - validation_days
         train_end = validation_start
@@ -87,100 +88,90 @@ def _origin_for_target(target_timestamp: pd.Timestamp, track: str) -> tuple[pd.T
     raise ValueError(f"Unknown track: {track}")
 
 
-def _history_features(history: pd.DataFrame, origin: pd.Timestamp, capacity: int) -> dict[str, float]:
-    available = history.loc[(history.index <= origin) & history["data_complete"]]
-    features: dict[str, float] = {"station_capacity": float(capacity)}
-    for demand in TARGETS:
+def _prepare_feature_panel(panel: pd.DataFrame) -> pd.DataFrame:
+    """Precompute all origin-available features in station timestamp order.
+
+    Target rows are never used as features: lag 1 is the observation at the
+    forecast origin, and every rolling window ends at that origin. Baseline
+    values are shifted by one matching calendar occurrence, so their values
+    also predate both supported forecast origins (at most 24 hours ahead).
+    """
+    result = panel.sort_values(["station_id", "timestamp"]).copy()
+    valid = result["data_complete"]
+    by_station = result.groupby("station_id", sort=False)
+    availability = valid.astype("int8")
+    for target in TARGETS:
+        observed = result[target].where(valid)
         for lag in LAGS:
-            instant = origin - pd.Timedelta(hours=lag - 1)
-            features[f"{demand}_lag_{lag}"] = float(available.at[instant, demand]) if instant in available.index else np.nan
+            result[f"{target}_lag_{lag}"] = by_station[target].shift(lag - 1).where(
+                by_station["data_complete"].shift(lag - 1).fillna(False)
+            )
         for window in ROLLING:
-            window_start = origin - pd.Timedelta(hours=window - 1)
-            values = available.loc[window_start:origin, demand]
-            features[f"{demand}_rolling_mean_{window}"] = float(values.mean()) if len(values) == window else np.nan
-            features[f"{demand}_rolling_std_{window}"] = float(values.std(ddof=0)) if len(values) == window else np.nan
-    balance = available.loc[origin - pd.Timedelta(hours=23):origin]
-    features["recent_pickup_return_balance"] = float((balance["returns"] - balance["pickups"]).mean()) if len(balance) == 24 else np.nan
-    return features
+            rolling = observed.groupby(result["station_id"], sort=False).rolling(window, min_periods=window)
+            result[f"{target}_rolling_mean_{window}"] = rolling.mean().reset_index(level=0, drop=True)
+            result[f"{target}_rolling_std_{window}"] = rolling.std(ddof=0).reset_index(level=0, drop=True)
+        keys = [result["station_id"], result["day_of_week"], result["hour"]]
+        group_sum = observed.groupby(keys, sort=False).cumsum().fillna(0.0)
+        group_count = availability.groupby(keys, sort=False).cumsum()
+        result[f"historical_{target}"] = (group_sum - observed.fillna(0.0)) / (group_count - availability).replace(0, np.nan)
+        weekly = [by_station[target].shift(168 * week).where(by_station["data_complete"].shift(168 * week).fillna(False)) for week in range(1, 5)]
+        result[f"seasonal_{target}"] = weekly[0]
+        result[f"recent_{target}"] = pd.concat(weekly, axis=1).mean(axis=1)
+    balance = (result["returns"] - result["pickups"]).where(valid)
+    result["recent_pickup_return_balance"] = balance.groupby(result["station_id"], sort=False).rolling(24, min_periods=24).mean().reset_index(level=0, drop=True)
+    return result
 
 
-def _append_example(records: list[dict[str, Any]], station_id: str, history: pd.DataFrame, target_timestamp: pd.Timestamp, origin: pd.Timestamp, horizon_step: int) -> None:
-    if target_timestamp not in history.index or origin not in history.index:
-        return
-    target = history.loc[target_timestamp]
-    origin_row = history.loc[origin]
-    if not bool(target["data_complete"]) or not bool(origin_row["data_complete"]):
-        return
-    record: dict[str, Any] = {
-        "station_id": station_id, "timestamp": target_timestamp, "origin_timestamp": origin,
-        "horizon_step": horizon_step, "target_hour": target_timestamp.hour,
-        "target_day_of_week": target_timestamp.dayofweek, "target_is_weekend": int(target_timestamp.dayofweek >= 5),
-        "actual_pickups": float(target["pickups"]), "actual_returns": float(target["returns"]),
-    }
-    record.update(_history_features(history, origin, int(target["station_capacity"])))
-    records.append(record)
+def _examples_for_days(features: pd.DataFrame, days: tuple[object, ...], track: str) -> pd.DataFrame:
+    targets = features.loc[features["date"].isin(set(days)) & features["data_complete"]].copy()
+    targets = targets.rename(columns={"pickups": "actual_pickups", "returns": "actual_returns"})
+    targets = targets.loc[:, [
+        "station_id", "timestamp", "actual_pickups", "actual_returns",
+        "seasonal_pickups", "seasonal_returns", "historical_pickups", "historical_returns", "recent_pickups", "recent_returns",
+    ]]
+    targets["target_hour"] = targets["timestamp"].dt.hour
+    targets["target_day_of_week"] = targets["timestamp"].dt.dayofweek
+    targets["target_is_weekend"] = (targets["target_day_of_week"] >= 5).astype("int8")
+    if track == "two_hour":
+        examples = pd.concat([
+            targets.assign(origin_timestamp=targets["timestamp"] - pd.Timedelta(hours=step), horizon_step=step)
+            for step in (1, 2)
+        ], ignore_index=True)
+    elif track == "day_ahead":
+        examples = targets.assign(
+            origin_timestamp=targets["timestamp"].dt.normalize() - pd.Timedelta(hours=1),
+            horizon_step=targets["timestamp"].dt.hour + 1,
+        )
+    else:
+        raise ValueError(f"Unknown track: {track}")
+    feature_columns = [column for column in features.columns if column.endswith(("_lag_1", "_lag_2", "_lag_3", "_lag_6", "_lag_12", "_lag_24", "_lag_48", "_lag_168")) or "rolling_" in column or column in {"recent_pickup_return_balance", "station_capacity"}]
+    origins = features.loc[:, ["station_id", "timestamp", "data_complete", *feature_columns]].rename(columns={"timestamp": "origin_timestamp", "data_complete": "origin_data_complete"})
+    examples = examples.merge(origins, on=["station_id", "origin_timestamp"], how="left", validate="many_to_one")
+    return examples.loc[examples["origin_data_complete"].fillna(False)].reset_index(drop=True)
 
 
-def _examples_for_days(panel: pd.DataFrame, days: tuple[object, ...], track: str) -> pd.DataFrame:
-    records: list[dict[str, Any]] = []
-    days_as_dates = set(days)
-    for station_id, station in panel.groupby("station_id", sort=True):
-        history = station.set_index("timestamp").sort_index()
-        target_rows = station[station["date"].isin(days_as_dates)]
-        for target_timestamp in target_rows["timestamp"]:
-            if track == "two_hour":
-                for horizon_step in (1, 2):
-                    _append_example(records, station_id, history, target_timestamp, target_timestamp - pd.Timedelta(hours=horizon_step), horizon_step)
-            elif track == "day_ahead":
-                origin = target_timestamp.normalize() - pd.Timedelta(hours=1)
-                _append_example(records, station_id, history, target_timestamp, origin, target_timestamp.hour + 1)
-            else:
-                raise ValueError(f"Unknown track: {track}")
-    return pd.DataFrame.from_records(records)
+def _historical_baseline(examples: pd.DataFrame, target: str, recent: bool = False) -> np.ndarray:
+    return examples[f"recent_{target}" if recent else f"historical_{target}"].to_numpy(dtype=float)
 
 
-def _historical_baseline(panel: pd.DataFrame, examples: pd.DataFrame, target: str, recent: bool = False) -> np.ndarray:
-    output: list[float] = []
-    for example in examples.itertuples(index=False):
-        station = panel[panel["station_id"] == example.station_id]
-        history = station[(station["timestamp"] < example.origin_timestamp) & station["data_complete"]]
-        matching = history[(history["day_of_week"] == example.target_day_of_week) & (history["hour"] == example.target_hour)]
-        if recent:
-            selected = []
-            for week in range(1, 5):
-                timestamp = example.timestamp - pd.Timedelta(hours=168 * week)
-                values = station[(station["timestamp"] == timestamp) & (station["timestamp"] < example.origin_timestamp) & station["data_complete"]][target]
-                if len(values):
-                    selected.append(float(values.iloc[0]))
-            prediction = float(np.mean(selected)) if selected else float(matching[target].mean())
-        else:
-            prediction = float(matching[target].mean())
-        output.append(prediction)
-    return np.asarray(output, dtype=float)
-
-
-def _seasonal_baseline(panel: pd.DataFrame, examples: pd.DataFrame, target: str) -> np.ndarray:
-    output: list[float] = []
-    for example in examples.itertuples(index=False):
-        target_time = example.timestamp - pd.Timedelta(hours=168)
-        values = panel[(panel["station_id"] == example.station_id) & (panel["timestamp"] == target_time) & panel["data_complete"]][target]
-        output.append(float(values.iloc[0]) if len(values) and target_time < example.origin_timestamp else np.nan)
-    return np.asarray(output, dtype=float)
+def _seasonal_baseline(examples: pd.DataFrame, target: str) -> np.ndarray:
+    return examples[f"seasonal_{target}"].to_numpy(dtype=float)
 
 
 def _feature_columns(examples: pd.DataFrame) -> list[str]:
-    excluded = {"timestamp", "origin_timestamp", "actual_pickups", "actual_returns"}
-    return [column for column in examples.columns if column not in excluded]
+    fixed = ["station_id", "horizon_step", "target_hour", "target_day_of_week", "target_is_weekend", "station_capacity", "recent_pickup_return_balance"]
+    lag_and_rolling = [column for column in examples.columns if "_lag_" in column or "_rolling_" in column]
+    return [column for column in [*fixed, *lag_and_rolling] if column in examples.columns]
 
 
 def _poisson_glm(train: pd.DataFrame, predict: pd.DataFrame, target: str, alpha: float) -> tuple[np.ndarray, Pipeline, float, float]:
     features = _feature_columns(train)
     numeric = [column for column in features if column != "station_id"]
     processor = ColumnTransformer([
-        ("station", OneHotEncoder(handle_unknown="ignore"), ["station_id"]),
-        ("numeric", Pipeline([("impute", SimpleImputer(strategy="median"))]), numeric),
+        ("station", OneHotEncoder(handle_unknown="ignore", sparse_output=False), ["station_id"]),
+        ("numeric", Pipeline([("impute", SimpleImputer(strategy="median")), ("scale", StandardScaler())]), numeric),
     ])
-    model = Pipeline([("features", processor), ("model", PoissonRegressor(alpha=alpha, max_iter=300))])
+    model = Pipeline([("features", processor), ("model", PoissonRegressor(alpha=alpha, max_iter=200, tol=1e-6))])
     start = perf_counter()
     model.fit(train[features], train[f"actual_{target}"])
     fit_seconds = perf_counter() - start
@@ -217,11 +208,11 @@ def _ml_predictions(model_name: str, train: pd.DataFrame, validation: pd.DataFra
     candidate_rows: list[dict[str, Any]] = []
     seed = int(config["run"]["seed"])
     if model_name == "poisson_glm":
-        candidates = [{"alpha": alpha} for alpha in (0.001, 0.01, 0.1)]
-        for candidate in candidates:
-            prediction, _, fit_seconds, prediction_seconds = _poisson_glm(train, validation, target, float(candidate["alpha"]))
-            candidate_rows.append({**candidate, "validation_mae": forecast_metrics(validation[f"actual_{target}"].to_numpy(), prediction)["mae"], "fit_seconds": fit_seconds, "prediction_seconds": prediction_seconds})
-        chosen = min(candidate_rows, key=lambda row: row["validation_mae"])
+        # GLM regularization is fixed for computational comparability. The
+        # specification reserves small validation tuning for LightGBM; this
+        # avoids multiplying a global CPU fit by a needless parameter sweep.
+        chosen = {"alpha": 0.1}
+        candidate_rows.append({**chosen, "validation_mae": None, "fit_seconds": None, "prediction_seconds": None})
         combined = pd.concat([train, validation], ignore_index=True)
         prediction, model, fit_seconds, prediction_seconds = _poisson_glm(combined, test, target, float(chosen["alpha"]))
     elif model_name == "lightgbm_poisson":
@@ -260,22 +251,77 @@ def _prediction_rows(examples: pd.DataFrame, prediction: np.ndarray, model: str,
     return frame
 
 
-def _metrics_tables(predictions: pd.DataFrame) -> tuple[pd.DataFrame, pd.DataFrame]:
-    groups = ["model", "track", "horizon_step", "fold", "target_type"]
-    records = []
-    for keys, group in predictions.groupby(groups, sort=True):
-        record = dict(zip(groups, keys, strict=True))
+def _combined_predictions(predictions: pd.DataFrame) -> pd.DataFrame:
+    keys = ["model", "fold", "track", "station_id", "timestamp", "origin_timestamp", "horizon_step"]
+    pivot = predictions.pivot(index=keys, columns="target_type", values=["actual", "prediction"]).dropna()
+    combined = pivot[("actual", "pickups")] + pivot[("actual", "returns")]
+    combined_prediction = pivot[("prediction", "pickups")] + pivot[("prediction", "returns")]
+    return pd.DataFrame({"actual": combined, "prediction": combined_prediction}).reset_index().assign(target_type="combined", prediction_was_clipped=False)
+
+
+def _metric_rows(frame: pd.DataFrame, groups: list[str], slice_type: str, slice_value: str) -> list[dict[str, Any]]:
+    records: list[dict[str, Any]] = []
+    for keys, group in frame.groupby(groups, sort=True):
+        record = dict(zip(groups, keys if isinstance(keys, tuple) else (keys,), strict=True))
         record.update(forecast_metrics(group["actual"].to_numpy(), group["prediction"].to_numpy()))
-        record["n"] = len(group)
+        record.update({"slice_type": slice_type, "slice_value": slice_value, "n": len(group)})
         records.append(record)
+    return records
+
+
+def _metrics_tables(predictions: pd.DataFrame) -> tuple[pd.DataFrame, pd.DataFrame]:
+    all_targets = pd.concat([predictions, _combined_predictions(predictions)], ignore_index=True)
+    all_targets["timestamp"] = pd.to_datetime(all_targets["timestamp"])
+    all_targets["day_type"] = np.where(all_targets["timestamp"].dt.dayofweek >= 5, "weekend", "weekday")
+    all_targets["period"] = np.where(all_targets["timestamp"].dt.hour.isin(range(7, 11)) | all_targets["timestamp"].dt.hour.isin(range(16, 21)), "peak", "off_peak")
+    groups = ["model", "track", "horizon_step", "fold", "target_type"]
+    records = _metric_rows(all_targets, groups, "overall", "all")
+    for value, subset in all_targets.groupby("day_type", sort=True):
+        records.extend(_metric_rows(subset, groups, "day_type", str(value)))
+    for value, subset in all_targets.groupby("period", sort=True):
+        records.extend(_metric_rows(subset, groups, "period", str(value)))
     metrics = pd.DataFrame(records)
-    station_records = []
-    for keys, group in predictions.groupby([*groups, "station_id"], sort=True):
-        record = dict(zip([*groups, "station_id"], keys, strict=True))
+    station_records: list[dict[str, Any]] = []
+    station_groups = [*groups, "station_id"]
+    for keys, group in all_targets.groupby(station_groups, sort=True):
+        record = dict(zip(station_groups, keys, strict=True))
         record.update(forecast_metrics(group["actual"].to_numpy(), group["prediction"].to_numpy()))
-        record["n"] = len(group)
+        record.update({"slice_type": "overall", "slice_value": "all", "n": len(group)})
         station_records.append(record)
-    return metrics, pd.DataFrame(station_records)
+    station_metrics = pd.DataFrame(station_records)
+    station_summary = station_metrics.groupby(groups, as_index=False).agg(
+        station_median_mae=("mae", "median"),
+        worst_quintile_station_mae=("mae", lambda values: values.nlargest(max(1, int(np.ceil(len(values) * 0.2)))).mean()),
+    )
+    metrics = metrics.merge(station_summary, on=groups, how="left")
+    return metrics, station_metrics
+
+
+def bootstrap_comparisons(predictions: pd.DataFrame, seed: int, replicates: int) -> pd.DataFrame:
+    """Paired day-block MAE-difference intervals versus historical average."""
+    rows: list[dict[str, Any]] = []
+    all_targets = pd.concat([predictions, _combined_predictions(predictions)], ignore_index=True)
+    all_targets["timestamp"] = pd.to_datetime(all_targets["timestamp"])
+    all_targets["day"] = all_targets["timestamp"].dt.date
+    keys = ["fold", "track", "horizon_step", "target_type"]
+    for key_values, subset in all_targets.groupby(keys, sort=True):
+        baseline = subset[subset["model"].eq("historical_average")]
+        join_keys = ["station_id", "timestamp", "origin_timestamp"]
+        for model, candidate in subset.groupby("model", sort=True):
+            if model == "historical_average":
+                continue
+            aligned = candidate.merge(baseline[join_keys + ["actual", "prediction"]], on=join_keys, suffixes=("_candidate", "_baseline"), validate="one_to_one")
+            if aligned.empty:
+                continue
+            daily = aligned.assign(
+                difference=(aligned["prediction_candidate"] - aligned["actual_candidate"]).abs() - (aligned["prediction_baseline"] - aligned["actual_baseline"]).abs(),
+                day=pd.to_datetime(aligned["timestamp"]).dt.date,
+            ).groupby("day", sort=True)["difference"].mean()
+            ci_low, ci_high = paired_mean_difference_ci(daily.to_numpy(), seed, replicates)
+            row = dict(zip(keys, key_values, strict=True))
+            row.update({"model": model, "baseline": "historical_average", "day_blocks": len(daily), "mae_difference": float(daily.mean()), "ci_95_low": ci_low, "ci_95_high": ci_high, "bootstrap_seed": seed, "bootstrap_replicates": replicates})
+            rows.append(row)
+    return pd.DataFrame(rows)
 
 
 def run_backtest(config_path: str | Path) -> dict[str, Any]:
@@ -287,6 +333,7 @@ def run_backtest(config_path: str | Path) -> dict[str, Any]:
     if config["weather"]["enabled"]:
         raise ValueError("Main backtest requires weather.enabled=false; weather is a separate hindsight experiment")
     panel = load_panel(config)
+    features = _prepare_feature_panel(panel)
     config_hash = sha256_file(config_path)
     run_id = f"{config['run']['name']}_{config_hash[:12]}"
     prediction_path = PROJECT_ROOT / "artifacts/predictions" / f"{run_id}.parquet"
@@ -300,27 +347,35 @@ def run_backtest(config_path: str | Path) -> dict[str, Any]:
     enabled = tuple(config["models"]["enabled"])
     for fold in folds:
         for track in ("two_hour", "day_ahead"):
-            train = _examples_for_days(panel, fold.train_days, track)
-            validation = _examples_for_days(panel, fold.validation_days, track)
-            test = _examples_for_days(panel, fold.test_days, track)
+            train = _examples_for_days(features, fold.train_days, track)
+            validation = _examples_for_days(features, fold.validation_days, track)
+            test = _examples_for_days(features, fold.test_days, track)
             if train.empty or validation.empty or test.empty:
                 raise RuntimeError(f"No valid examples for fold={fold.fold}, track={track}")
             for target in TARGETS:
+                seasonal_prediction = _seasonal_baseline(test, target)
+                # All models are scored on identical support. The only source
+                # exception is a target whose mandatory seven-day seasonal
+                # observation is an explicitly ambiguous DST source row.
+                # Excluding it for every model is preferable to pretending the
+                # seasonal baseline has a value or comparing unequal samples.
+                scoring_mask = np.isfinite(seasonal_prediction)
+                scoring_test = test.loc[scoring_mask].reset_index(drop=True)
                 baseline_predictions = {
-                    "seasonal_naive": _seasonal_baseline(panel, test, target),
-                    "historical_average": _historical_baseline(panel, test, target),
-                    "recent_average": _historical_baseline(panel, test, target, recent=True),
+                    "seasonal_naive": seasonal_prediction[scoring_mask],
+                    "historical_average": _historical_baseline(test, target)[scoring_mask],
+                    "recent_average": _historical_baseline(test, target, recent=True)[scoring_mask],
                 }
                 for model_name, prediction in baseline_predictions.items():
                     if model_name not in enabled:
                         continue
                     valid = np.isfinite(prediction)
-                    all_predictions.append(_prediction_rows(test.loc[valid].reset_index(drop=True), prediction[valid], model_name, target, fold.fold, track))
+                    all_predictions.append(_prediction_rows(scoring_test.loc[valid].reset_index(drop=True), prediction[valid], model_name, target, fold.fold, track))
                     runtime_rows.append({"model": model_name, "fold": fold.fold, "track": track, "target_type": target, "fit_seconds": 0.0, "prediction_seconds": np.nan, "serialized_model_bytes": 0, "feature_count": 0, "tuned_configurations": 0})
                 for model_name in ("poisson_glm", "lightgbm_poisson"):
                     if model_name in enabled:
-                        prediction, details = _ml_predictions(model_name, train, validation, test, target, config, models_path, fold.fold, track)
-                        all_predictions.append(_prediction_rows(test, prediction, model_name, target, fold.fold, track))
+                        prediction, details = _ml_predictions(model_name, train, validation, scoring_test, target, config, models_path, fold.fold, track)
+                        all_predictions.append(_prediction_rows(scoring_test, prediction, model_name, target, fold.fold, track))
                         runtime_rows.append({key: value for key, value in details.items() if key not in {"selected_configuration", "tried_configurations"}})
     predictions = pd.concat(all_predictions, ignore_index=True)
     prediction_path.parent.mkdir(parents=True, exist_ok=True)
@@ -330,6 +385,7 @@ def run_backtest(config_path: str | Path) -> dict[str, Any]:
     tables.mkdir(parents=True, exist_ok=True)
     metrics.to_csv(tables / "forecast_metrics.csv", index=False)
     station_metrics.to_csv(tables / "station_metrics.csv", index=False)
+    bootstrap_comparisons(predictions, int(config["run"]["seed"]), int(config["evaluation"]["bootstrap_replicates"])).to_csv(tables / "bootstrap_comparisons.csv", index=False)
     pd.DataFrame(runtime_rows).to_csv(runtime_path, index=False)
     manifest = {
         "run_id": run_id, "timestamp_timezone": TIMEZONE, "config_path": str(config_path.relative_to(PROJECT_ROOT)), "config_sha256": config_hash,

@@ -36,3 +36,12 @@
 - Generated the interim smoke report, forecast/station/runtime/decision tables, figures, saved predictions, serialized models, and run manifest. The report explicitly labels itself as a smoke-scale integration check rather than a core conclusion; weather remains disabled.
 - Installed Homebrew `libomp` because the macOS LightGBM wheel could not load without it. Updated bootstrap to install it when needed. Updated `uv` setup to use a non-editable installation because the target runtime did not load source paths from editable `.pth` files reliably.
 - Verified `make smoke` and `uv run --no-editable --extra dev pytest`: 16 passed.
+
+## 2026-07-28 — Milestone 4 complete: no-weather core forecast comparison
+
+- Replaced the smoke-scale row-by-row feature construction with a vectorized origin-keyed feature panel. It keeps lag/rolling features at or before each origin, precomputes shifted historical/recent/seasonal baselines, and is covered by an explicit no-target-leakage test.
+- Corrected rolling-origin boundaries after detecting that the initial constructor left the final 28 usable 2018 days unused. The accepted folds test `2018-10-08`–`2018-11-05`, `2018-11-06`–`2018-12-03`, and `2018-12-04`–`2018-12-31`, with expanding training windows and 28-day validation windows.
+- Fixed global Poisson GLM regularization at `alpha=0.1` after feature standardization; the validation parameter search remains intentionally limited to LightGBM. This is documented in `references/METHOD_NOTES.md` and avoids multiplying the large CPU-only global fit by an unrequired GLM sweep.
+- Discovered a required-support mismatch caused by seasonal-naive’s seven-day lag reaching an explicitly ambiguous DST observation for 60 fold-1 target rows. Preserved exact comparability by excluding those same rows from every model’s score, rather than imputing or pretending the seasonal value exists. The accepted run has 1,812,600 nonnegative, non-null predictions across all five models, 30 stations, three folds, two tracks, and separate pickup/return targets.
+- Wrote complete forecast, station, runtime, and paired day-level bootstrap tables. The current core run manifest is `artifacts/run_manifests/core_no_weather_e474ce35b5c7.json`.
+- Verified `uv run --no-editable --extra dev pytest`: 18 passed. Manual output checks confirmed identical model support by fold/track/target, zero negative predictions, zero null targets/predictions, and full required 2018 test coverage.

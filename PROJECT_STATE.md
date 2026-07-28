@@ -2,7 +2,7 @@
 
 Status: `IN_PROGRESS`
 
-Current phase: Milestone 4 — statistical and tree-model core backtest
+Current phase: Milestone 5 and 8 — core decision reporting and audits
 
 Completed milestones:
 
@@ -10,6 +10,7 @@ Completed milestones:
 - Milestone 1 — data acquisition and audit: complete and verified on 2026-07-28.
 - Milestone 2 — canonical panel: complete and verified on 2026-07-28.
 - Milestone 3 — baseline backtest and smoke report: complete and verified on 2026-07-28.
+- Milestone 4 — statistical and tree-model core backtest: complete and verified on 2026-07-28.
 
 Current constraints and decisions:
 
@@ -20,4 +21,4 @@ Current constraints and decisions:
 - The source has 24 unzoned civil-hour labels on both 2018 DST transitions. Panel construction must use the documented explicit policy and mark affected rows incomplete; it must not silently treat those labels as unambiguous local instants.
 - The primary comparison will exclude weather. Any later weather run will be named `observed_weather_hindsight_upper_bound`.
 
-Last verified action: `make smoke` completed the no-weather five-station pipeline from cached panel through report generation. It produced 25,200 held-out forecast rows and 350 station-day inventory evaluations. The test suite passed 16 tests.
+Last verified action: the three-fold 30-station no-weather core backtest completed with 1,812,600 predictions and 18 passing tests. All five models have identical scored support in every fold; generated forecast, station, bootstrap, and runtime tables are present.
