@@ -1,7 +1,7 @@
 # Next Action
 
 ```bash
-make smoke
+make core
 ```
 
-Run the full five-station no-weather smoke pipeline—baseline forecasts, tiny LightGBM, decision evaluation, tables, figures, manifest, and report—before starting the 30-station core backtest.
+Run the required 30-station no-weather, three-fold chronological core forecast backtest. Do not start the weather sensitivity or optional GRU; run core decision evaluation and the required metric/audit extensions after forecast outputs are validated.

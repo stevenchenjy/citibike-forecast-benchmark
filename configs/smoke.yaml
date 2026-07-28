@@ -8,7 +8,7 @@ data:
   panel_path: data/processed/hourly_panel_smoke
 splits:
   folds: 1
-  min_train_days: 30
+  min_train_days: 46
   validation_days: 7
   test_days: 7
   expanding: true

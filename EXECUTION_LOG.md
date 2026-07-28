@@ -27,3 +27,12 @@
 - Implemented and tested the explicit DST policy: source spring-forward 02:00 zero rows are removed because that local hour does not exist; source fall-back 01:00 rows are treated as ambiguous and paired with a synthetic second occurrence. Both fall rows are `data_complete=false`, so later model fitting and scoring can exclude them rather than turn an ambiguity into a purported observation.
 - Built `configs/smoke.yaml`: 5 stations × 8,760 actual hours = 43,800 rows (10 incomplete DST rows). Built `configs/core.yaml`: 30 stations × 8,760 actual hours = 262,800 rows (60 incomplete DST rows). Both have zero duplicate station timestamps.
 - Verified `uv run --extra dev pytest`: 16 passed.
+
+## 2026-07-28 — Milestone 3 complete: smoke pipeline
+
+- Implemented strict chronological forecast examples for the two-hour (`t+1`, `t+2`) and day-ahead (24-hour next-day path) tracks. Every demand-history feature is read at or before the forecast origin; target rows and DST-ambiguous rows are excluded from training and scoring.
+- Ran the full no-weather smoke profile on five deterministic source stations and exactly 60 consecutive days: 46 training days, 7 validation days, and 7 test days. The run produced 25,200 held-out pickup/return predictions across seasonal naive, expanding historical average, recent four-week average, Poisson GLM, and tiny LightGBM Poisson.
+- Added day-ahead inventory evaluation. It searches all feasible starting inventories, replays aggregate hourly demand, reports pickup and return failures, service level, oracle regret, starting-inventory error, and the reversed within-hour ordering sensitivity. The smoke evaluation contains 350 station-days (five models × five stations × seven days × two orderings).
+- Generated the interim smoke report, forecast/station/runtime/decision tables, figures, saved predictions, serialized models, and run manifest. The report explicitly labels itself as a smoke-scale integration check rather than a core conclusion; weather remains disabled.
+- Installed Homebrew `libomp` because the macOS LightGBM wheel could not load without it. Updated bootstrap to install it when needed. Updated `uv` setup to use a non-editable installation because the target runtime did not load source paths from editable `.pth` files reliably.
+- Verified `make smoke` and `uv run --no-editable --extra dev pytest`: 16 passed.

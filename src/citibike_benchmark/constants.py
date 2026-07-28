@@ -1,7 +1,22 @@
 """Central constants for reproducible benchmark behavior."""
+import os
 from pathlib import Path
 
-PROJECT_ROOT = Path(__file__).resolve().parents[2]
+
+def _project_root() -> Path:
+    """Resolve the checkout both for source and non-editable installations."""
+    configured = os.environ.get("CITIBIKE_BENCHMARK_ROOT")
+    if configured:
+        return Path(configured).expanduser().resolve()
+    for candidate in (Path.cwd().resolve(), *Path.cwd().resolve().parents):
+        if (candidate / "pyproject.toml").is_file() and (candidate / "configs").is_dir():
+            return candidate
+    # Fallback for editable/development contexts; normal project commands are
+    # run from the checkout and therefore resolve through the branch above.
+    return Path(__file__).resolve().parents[2]
+
+
+PROJECT_ROOT = _project_root()
 SOURCE_REPOSITORY_URL = "https://github.com/DanieleGammelli/variational-poisson-rnn.git"
 SOURCE_RELATIVE_PATH = Path("data/external/variational-poisson-rnn")
 TIMEZONE = "America/New_York"

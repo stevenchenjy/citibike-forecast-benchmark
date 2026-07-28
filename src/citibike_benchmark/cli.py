@@ -10,6 +10,9 @@ from citibike_benchmark.config import load_config
 from citibike_benchmark.data.download import download_source
 from citibike_benchmark.data.panel import build_hourly_panel
 from citibike_benchmark.data.source_adapter import inspect_source, write_data_audit
+from citibike_benchmark.evaluation.backtest import run_backtest
+from citibike_benchmark.evaluation.decision import run_decision_evaluation
+from citibike_benchmark.reporting.report import build_report
 
 app = typer.Typer(help="Reproducible Citi Bike forecasting and inventory benchmark.", no_args_is_help=True)
 
@@ -42,22 +45,23 @@ def build(config: Path = typer.Option(Path("configs/core.yaml"))) -> None:
 @app.command()
 def backtest(config: Path = typer.Option(Path("configs/core.yaml"))) -> None:
     """Run chronological forecast backtests."""
-    load_config(config)
-    raise typer.Exit("Forecast backtesting is completed in Milestones 3 and 4.")
+    result = run_backtest(config)
+    cache = "reused cached" if result["cached"] else "completed"
+    print(f"{cache} forecast backtest {result['run_id']}: {result['prediction_path']}")
 
 
 @app.command()
 def decision(config: Path = typer.Option(Path("configs/core.yaml"))) -> None:
     """Run station-level inventory-decision evaluation."""
-    load_config(config)
-    raise typer.Exit("Decision evaluation is completed in Milestone 5.")
+    result = run_decision_evaluation(config)
+    print(f"Completed {result['station_days']} station-day decisions: {result['decision_metrics']}")
 
 
 @app.command()
 def report(config: Path = typer.Option(Path("configs/core.yaml"))) -> None:
     """Write final tables, figures, and report."""
-    load_config(config)
-    raise typer.Exit("Report generation is completed after evaluation milestones.")
+    result = build_report(config)
+    print(f"Wrote {result['report']}")
 
 
 if __name__ == "__main__":

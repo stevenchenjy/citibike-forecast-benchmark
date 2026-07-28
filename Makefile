@@ -1,10 +1,10 @@
-PYTHON ?= uv run python
+PYTHON ?= uv run --no-editable python
 CLI = $(PYTHON) -m citibike_benchmark.cli
 
 .PHONY: setup data inspect test smoke core decision report reproduce-smoke reproduce-core
 
 setup:
-	uv sync --extra dev
+	bash scripts/bootstrap.sh
 
 data:
 	$(CLI) download
@@ -13,7 +13,7 @@ inspect:
 	$(CLI) inspect
 
 test:
-	uv run --extra dev pytest
+	uv run --no-editable --extra dev pytest
 
 smoke:
 	$(CLI) build --config configs/smoke.yaml

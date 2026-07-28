@@ -7,14 +7,16 @@ The required source is the official open-source [variational-poisson-rnn reposit
 ## Quick start
 
 ```bash
-uv sync --extra dev
+uv sync --extra dev --no-editable
 make data
 make inspect
 make test
 make smoke
 ```
 
-If `uv` is unavailable, create a Python 3.11 virtual environment and install the package with `python -m pip install -e '.[dev]'`.
+The `--no-editable` setting is deliberate: it avoids a local CPython `.pth` issue observed on the target Mac and ensures the documented direct `python -m citibike_benchmark.cli ...` commands resolve consistently. If `uv` is unavailable, create a Python 3.11 virtual environment and install with `python -m pip install '.[dev]'`.
+
+On macOS the bootstrap script installs Homebrew `libomp` when necessary because the LightGBM macOS wheel requires it. Linux runners normally supply an OpenMP runtime through their system package manager.
 
 The primary comparison excludes weather and evaluates seasonal naive, historical average, recent average, global Poisson GLM, and global LightGBM Poisson under strict chronological splits. Pickups and returns are separate targets. The weather sensitivity is explicitly named `observed_weather_hindsight_upper_bound`; observed future weather is not available in live operation.
 

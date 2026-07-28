@@ -86,13 +86,12 @@ def _source_station_frame(source_root: Path, station_id: str, station_capacity: 
     return normalize_source_civil_hours(frame)
 
 
-def _cache_is_valid(panel_path: Path, metadata_path: Path, config_path: Path, station_ids: list[str], source_commit: str) -> bool:
+def _cache_is_valid(panel_path: Path, metadata_path: Path, station_ids: list[str], source_commit: str) -> bool:
     if not panel_path.exists() or not metadata_path.exists() or not list(panel_path.rglob("*.parquet")):
         return False
     metadata = json.loads(metadata_path.read_text(encoding="utf-8"))
     return (
-        metadata.get("config_sha256") == sha256_file(config_path)
-        and metadata.get("station_ids") == station_ids
+        metadata.get("station_ids") == station_ids
         and metadata.get("source_commit") == source_commit
     )
 
@@ -113,8 +112,12 @@ def build_hourly_panel(config_path: str | Path) -> dict[str, Any]:
     panel_path = PROJECT_ROOT / config["data"]["panel_path"]
     run_name = config["run"]["name"]
     metadata_path = PROJECT_ROOT / "data/manifests" / f"panel_{run_name}.json"
-    if _cache_is_valid(panel_path, metadata_path, config_path, station_ids, source_manifest["source_commit"]):
+    if _cache_is_valid(panel_path, metadata_path, station_ids, source_manifest["source_commit"]):
         return json.loads(metadata_path.read_text(encoding="utf-8")) | {"cached": True}
+    if panel_path.exists() and list(panel_path.rglob("*.parquet")):
+        raise RuntimeError(
+            f"Panel path contains an incompatible cache: {panel_path}. Preserve it and configure a new panel_path instead of overwriting it."
+        )
 
     station_info = pd.read_csv(source_root / "data/raw/station_information_citibike.csv").set_index("id")
     frames = []
