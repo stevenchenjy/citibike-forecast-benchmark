@@ -1,0 +1,4 @@
+name: lightgbm_poisson
+objective: poisson
+selection_metric: validation_mae
+secondary_diagnostic: decision_cost

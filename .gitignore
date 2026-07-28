@@ -1,0 +1,36 @@
+.DS_Store
+.venv/
+__pycache__/
+*.py[cod]
+*.egg-info/
+.pytest_cache/
+.coverage
+htmlcov/
+
+# Reproducible but potentially large inputs and derived outputs.
+data/external/variational-poisson-rnn/
+data/raw/**
+data/interim/**
+data/processed/**
+data/manifests/*.json
+artifacts/models/**
+artifacts/predictions/**
+artifacts/feature_importance/**
+artifacts/run_manifests/*.json
+reports/figures/**
+reports/tables/**
+reports/runs/**
+
+# Preserve the repository layout without versioning generated content.
+!data/external/.gitkeep
+!data/raw/.gitkeep
+!data/interim/.gitkeep
+!data/processed/.gitkeep
+!data/manifests/.gitkeep
+!artifacts/models/.gitkeep
+!artifacts/predictions/.gitkeep
+!artifacts/feature_importance/.gitkeep
+!artifacts/run_manifests/.gitkeep
+!reports/figures/.gitkeep
+!reports/tables/.gitkeep
+!reports/runs/.gitkeep

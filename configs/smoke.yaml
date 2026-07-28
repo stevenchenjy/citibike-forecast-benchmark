@@ -1,0 +1,20 @@
+extends: base.yaml
+run:
+  name: smoke
+  seed: 20260728
+data:
+  station_count: 5
+  minimum_consecutive_days: 60
+splits:
+  folds: 1
+  min_train_days: 30
+  validation_days: 7
+  test_days: 7
+  expanding: true
+models:
+  enabled: [seasonal_naive, historical_average, recent_average, poisson_glm, lightgbm_poisson]
+  lightgbm:
+    parameter_grid:
+      - {n_estimators: 40, learning_rate: 0.08, num_leaves: 7, min_child_samples: 10}
+weather:
+  enabled: false

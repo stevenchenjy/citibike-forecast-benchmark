@@ -1,0 +1,22 @@
+extends: base.yaml
+run:
+  name: core_no_weather
+  seed: 20260728
+data:
+  station_count: 30
+  use_complete_available_2018_period: true
+splits:
+  folds: 3
+  min_train_days: 120
+  validation_days: 28
+  test_days: 28
+  expanding: true
+models:
+  enabled: [seasonal_naive, historical_average, recent_average, poisson_glm, lightgbm_poisson]
+  lightgbm:
+    parameter_grid:
+      - {n_estimators: 150, learning_rate: 0.05, num_leaves: 15, min_child_samples: 20}
+      - {n_estimators: 250, learning_rate: 0.05, num_leaves: 31, min_child_samples: 30}
+      - {n_estimators: 200, learning_rate: 0.08, num_leaves: 15, min_child_samples: 20}
+weather:
+  enabled: false

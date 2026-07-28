@@ -1,0 +1,29 @@
+project:
+  name: citibike-forecast-benchmark
+  timezone: America/New_York
+  seed: 20260728
+source:
+  repository_url: https://github.com/DanieleGammelli/variational-poisson-rnn.git
+  local_path: data/external/variational-poisson-rnn
+  fallback_allowed: false
+data:
+  interval_minutes: 60
+  panel_path: data/processed/hourly_panel
+  require_reference_stations: true
+  minimum_station_coverage: 0.95
+features:
+  include_weather: false
+  lags_hours: [1, 2, 3, 6, 12, 24, 48, 168]
+  rolling_hours: [3, 6, 24, 168]
+models:
+  required: [seasonal_naive, historical_average, recent_average, poisson_glm, lightgbm_poisson]
+  optional: [poisson_gru]
+evaluation:
+  targets: [pickups, returns]
+  tracks: [two_hour, day_ahead]
+  bootstrap_replicates: 300
+  inventory_ordering: pickups_then_returns
+  inventory_ordering_sensitivity: returns_then_pickups
+weather:
+  experiment_name: observed_weather_hindsight_upper_bound
+  enabled: false

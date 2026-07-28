@@ -1,0 +1,49 @@
+[build-system]
+requires = ["setuptools>=70"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "citibike-forecast-benchmark"
+version = "0.1.0"
+description = "Reproducible station-level Citi Bike forecasting and inventory benchmark"
+readme = "README.md"
+requires-python = ">=3.11,<3.12"
+license = { text = "MIT" }
+authors = [{ name = "Citi Bike Forecast Benchmark contributors" }]
+dependencies = [
+  "jinja2>=3.1.4",
+  "joblib>=1.4.2",
+  "lightgbm>=4.5.0",
+  "matplotlib>=3.9.0",
+  "numpy>=1.26.4",
+  "pandas>=2.2.2",
+  "polars>=1.5.0",
+  "psutil>=6.0.0",
+  "pyarrow>=17.0.0",
+  "pyyaml>=6.0.2",
+  "rich>=13.7.1",
+  "scikit-learn>=1.5.1",
+  "scipy>=1.14.0",
+  "typer>=0.12.3",
+]
+
+[project.optional-dependencies]
+deep = ["torch>=2.4.0"]
+dev = ["pytest>=8.3.2", "pytest-cov>=5.0.0"]
+
+[project.scripts]
+citibike-benchmark = "citibike_benchmark.cli:app"
+
+[tool.setuptools]
+package-dir = {"" = "src"}
+
+[tool.setuptools.packages.find]
+where = ["src"]
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+addopts = "-ra"
+filterwarnings = ["error::RuntimeWarning"]
+
+[tool.coverage.run]
+source = ["citibike_benchmark"]

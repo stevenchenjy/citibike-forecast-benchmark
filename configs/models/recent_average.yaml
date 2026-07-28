@@ -1,0 +1,4 @@
+name: recent_average
+weeks: 4
+selection: validation
+alternatives: [simple_mean, exponentially_weighted]

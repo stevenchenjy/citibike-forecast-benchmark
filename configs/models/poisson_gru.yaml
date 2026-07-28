@@ -1,0 +1,5 @@
+name: poisson_gru
+enabled: false
+loss: poisson_nll
+early_stopping: true
+cpu_first: true

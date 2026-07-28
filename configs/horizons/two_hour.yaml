@@ -1,0 +1,4 @@
+name: two_hour
+origin_frequency: 1h
+horizon_steps: [1, 2]
+origin: every_hour

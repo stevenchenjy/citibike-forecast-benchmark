@@ -1,0 +1,2 @@
+name: seasonal_naive
+seasonal_lag_hours: 168
