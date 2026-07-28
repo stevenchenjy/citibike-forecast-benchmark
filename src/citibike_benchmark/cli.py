@@ -8,6 +8,7 @@ from rich import print
 
 from citibike_benchmark.config import load_config
 from citibike_benchmark.data.download import download_source
+from citibike_benchmark.data.panel import build_hourly_panel
 from citibike_benchmark.data.source_adapter import inspect_source, write_data_audit
 
 app = typer.Typer(help="Reproducible Citi Bike forecasting and inventory benchmark.", no_args_is_help=True)
@@ -33,8 +34,9 @@ def inspect() -> None:
 @app.command()
 def build(config: Path = typer.Option(Path("configs/core.yaml"))) -> None:
     """Build the canonical processed hourly panel."""
-    load_config(config)
-    raise typer.Exit("Canonical-panel construction is completed in Milestone 2.")
+    metadata = build_hourly_panel(config)
+    cache = "reused cached" if metadata["cached"] else "built"
+    print(f"{cache} {metadata['rows']:,}-row panel at {metadata['panel_path']}")
 
 
 @app.command()

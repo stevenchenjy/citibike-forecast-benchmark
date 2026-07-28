@@ -20,3 +20,10 @@
 - Wrote `data/manifests/source_download.json`, generated `data/manifests/source_manifest.json` (64 input hashes), and wrote `reports/audit/data_audit.md`.
 - Found and documented two non-silent source limitations: every calendar date has 24 unzoned local hour labels across DST transitions; and three raw positive events are timestamped in 2019 outside the named 2018 demand scope. The canonical panel will retain an actual America/New_York grid while explicitly flagging affected DST rows incomplete and excluding those three out-of-scope events from exact replay.
 - Verified `make data`, `make inspect`, and `uv run --extra dev pytest`: 14 passed.
+
+## 2026-07-28 — Milestone 2 complete
+
+- Implemented the source-specific canonical panel adapter after the source audit. It maps source pickup/return count fields separately, joins validated station capacity, creates profile-specific partitioned Parquet datasets, records cache manifests, and writes data-quality tables.
+- Implemented and tested the explicit DST policy: source spring-forward 02:00 zero rows are removed because that local hour does not exist; source fall-back 01:00 rows are treated as ambiguous and paired with a synthetic second occurrence. Both fall rows are `data_complete=false`, so later model fitting and scoring can exclude them rather than turn an ambiguity into a purported observation.
+- Built `configs/smoke.yaml`: 5 stations × 8,760 actual hours = 43,800 rows (10 incomplete DST rows). Built `configs/core.yaml`: 30 stations × 8,760 actual hours = 262,800 rows (60 incomplete DST rows). Both have zero duplicate station timestamps.
+- Verified `uv run --extra dev pytest`: 16 passed.

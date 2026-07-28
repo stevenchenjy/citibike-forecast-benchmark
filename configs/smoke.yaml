@@ -5,6 +5,7 @@ run:
 data:
   station_count: 5
   minimum_consecutive_days: 60
+  panel_path: data/processed/hourly_panel_smoke
 splits:
   folds: 1
   min_train_days: 30

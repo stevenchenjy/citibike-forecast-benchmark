@@ -1,7 +1,7 @@
 # Next Action
 
 ```bash
-uv run python -m citibike_benchmark.cli build --config configs/smoke.yaml
+make smoke
 ```
 
-Build and validate the 5-station canonical 60-minute panel with the documented DST policy, then extend the same validated adapter to the 30-station core panel.
+Run the full five-station no-weather smoke pipeline—baseline forecasts, tiny LightGBM, decision evaluation, tables, figures, manifest, and report—before starting the 30-station core backtest.

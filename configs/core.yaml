@@ -5,6 +5,7 @@ run:
 data:
   station_count: 30
   use_complete_available_2018_period: true
+  panel_path: data/processed/hourly_panel_core
 splits:
   folds: 3
   min_train_days: 120

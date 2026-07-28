@@ -48,3 +48,7 @@ The source supplies exactly 24 unzoned civil-hour labels for every 2018 date, in
 The upstream repository LICENSE is MIT (Copyright 2021 Daniele Gammelli). No distinct data-license statement was found in the root documentation; retain upstream terms and validate suitability before redistribution.
 
 The machine-readable audit and hashes are in `data/manifests/source_manifest.json` (intentionally gitignored because it is a generated, hash-heavy run artifact).
+
+## Canonical panel validation
+
+The builder produced a 43,800-row five-station smoke panel and a 262,800-row 30-station core panel, both stored as partitioned Parquet. Each retained station has exactly 8,760 unique `America/New_York` hourly timestamps from `2018-01-01 00:00` to `2018-12-31 23:00`, including the 23-hour spring-forward and 25-hour fall-back local days. The smoke panel has 10 and the core panel has 60 explicitly incomplete rows (two fall-back rows per station); every other panel target is complete. Generated panel manifests record the profile, source commit, input config hash, station list, row count, and DST policy.

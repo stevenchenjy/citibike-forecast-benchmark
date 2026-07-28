@@ -2,12 +2,13 @@
 
 Status: `IN_PROGRESS`
 
-Current phase: Milestone 2 — canonical panel
+Current phase: Milestone 3 — baseline backtest and smoke report
 
 Completed milestones:
 
 - Milestone 0 — repository and environment: complete and verified on 2026-07-28.
 - Milestone 1 — data acquisition and audit: complete and verified on 2026-07-28.
+- Milestone 2 — canonical panel: complete and verified on 2026-07-28.
 
 Current constraints and decisions:
 
@@ -18,4 +19,4 @@ Current constraints and decisions:
 - The source has 24 unzoned civil-hour labels on both 2018 DST transitions. Panel construction must use the documented explicit policy and mark affected rows incomplete; it must not silently treat those labels as unambiguous local instants.
 - The primary comparison will exclude weather. Any later weather run will be named `observed_weather_hindsight_upper_bound`.
 
-Last verified action: `make data`, `make inspect`, and `uv run --extra dev pytest` completed. The test suite passed 14 tests, including validation of the acquired official source schema.
+Last verified action: smoke and core panels were built and validated. `uv run --extra dev pytest` passed 16 tests, including full actual-hour DST grid validation against the official source.
