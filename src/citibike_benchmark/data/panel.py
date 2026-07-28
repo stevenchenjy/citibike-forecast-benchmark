@@ -2,6 +2,7 @@
 from __future__ import annotations
 
 import json
+import shutil
 from pathlib import Path
 from typing import Any
 
@@ -96,6 +97,19 @@ def _cache_is_valid(panel_path: Path, metadata_path: Path, station_ids: list[str
     )
 
 
+def _write_quality_tables(panel: pd.DataFrame, config_path: Path, run_name: str) -> None:
+    """Keep profile-local quality tables from overwriting the core table."""
+    quality = coverage_by_station(panel).assign(profile=run_name)
+    run_id = f"{run_name}_{sha256_file(config_path)[:12]}"
+    profile_path = PROJECT_ROOT / "reports/runs" / run_id / "data_quality.csv"
+    profile_path.parent.mkdir(parents=True, exist_ok=True)
+    quality.to_csv(profile_path, index=False)
+    if run_name == "core_no_weather":
+        canonical = PROJECT_ROOT / "reports/tables/data_quality.csv"
+        canonical.parent.mkdir(parents=True, exist_ok=True)
+        shutil.copy2(profile_path, canonical)
+
+
 def build_hourly_panel(config_path: str | Path) -> dict[str, Any]:
     """Build or safely reuse a partitioned parquet canonical panel."""
     config_path = Path(config_path)
@@ -113,6 +127,7 @@ def build_hourly_panel(config_path: str | Path) -> dict[str, Any]:
     run_name = config["run"]["name"]
     metadata_path = PROJECT_ROOT / "data/manifests" / f"panel_{run_name}.json"
     if _cache_is_valid(panel_path, metadata_path, station_ids, source_manifest["source_commit"]):
+        _write_quality_tables(pd.read_parquet(panel_path), config_path, run_name)
         return json.loads(metadata_path.read_text(encoding="utf-8")) | {"cached": True}
     if panel_path.exists() and list(panel_path.rglob("*.parquet")):
         raise RuntimeError(
@@ -134,10 +149,7 @@ def build_hourly_panel(config_path: str | Path) -> dict[str, Any]:
     # A profile-specific path and manifest make repeated calls cache-safe; no
     # existing data are removed or overwritten in place.
     panel.to_parquet(panel_path, index=False, partition_cols=["station_id", "year"])
-    quality = coverage_by_station(panel)
-    quality_path = PROJECT_ROOT / "reports/tables/data_quality.csv"
-    quality_path.parent.mkdir(parents=True, exist_ok=True)
-    quality.assign(profile=run_name).to_csv(quality_path, index=False)
+    _write_quality_tables(panel, config_path, run_name)
     metadata = {
         "profile": run_name,
         "config_path": str(config_path.relative_to(PROJECT_ROOT)),

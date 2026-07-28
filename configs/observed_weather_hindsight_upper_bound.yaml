@@ -1,0 +1,12 @@
+extends: core.yaml
+run:
+  name: observed_weather_hindsight_upper_bound
+  seed: 20260728
+data:
+  panel_path: data/processed/hourly_panel_observed_weather_hindsight_upper_bound
+models:
+  enabled: [historical_average, poisson_glm, lightgbm_poisson]
+weather:
+  enabled: true
+  experiment_name: observed_weather_hindsight_upper_bound
+  feature_vintage: observed_future_weather_not_operational

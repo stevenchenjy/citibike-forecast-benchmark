@@ -72,7 +72,19 @@ def _core_figures(run_id: str, predictions: pd.DataFrame, forecast: pd.DataFrame
     return output
 
 
-def _core_report(run_id: str, figures: list[Path], predictions: pd.DataFrame, forecast: pd.DataFrame, bootstrap: pd.DataFrame, decision: pd.DataFrame) -> Path:
+def _weather_figure(weather: pd.DataFrame) -> Path:
+    """Plot the auxiliary observed-weather result without mixing it into core figures."""
+    figures = PROJECT_ROOT / "reports/figures"
+    figures.mkdir(parents=True, exist_ok=True)
+    summary = weather.groupby(["model", "track"], as_index=False)["mae_improvement_vs_no_weather"].mean()
+    pivot = summary.pivot(index="model", columns="track", values="mae_improvement_vs_no_weather").sort_index()
+    return _save(
+        pivot.plot.bar(figsize=(9, 4), rot=25, ylabel="MAE improvement versus no-weather", title="Observed-weather hindsight upper bound").get_figure(),
+        figures / "observed_weather_hindsight_upper_bound_weather_sensitivity.png",
+    )
+
+
+def _core_report(run_id: str, figures: list[Path], predictions: pd.DataFrame, forecast: pd.DataFrame, bootstrap: pd.DataFrame, decision: pd.DataFrame, weather: pd.DataFrame | None) -> Path:
     report = PROJECT_ROOT / "reports/final_report.md"
     summary_rows = []
     for (model, track), group in predictions.groupby(["model", "track"], sort=True):
@@ -84,6 +96,22 @@ def _core_report(run_id: str, figures: list[Path], predictions: pd.DataFrame, fo
     decision_operational = decision.query("ordering == 'pickups_then_returns'").groupby("model", as_index=False).agg(total_failures=("total_failures", "sum"), average_regret=("average_regret_vs_oracle", "mean"), service_level=("fulfilled_demand_rate", "mean"))
     bootstrap_summary = bootstrap.groupby("model", as_index=False).agg(mean_mae_difference=("mae_difference", "mean"), min_ci_low=("ci_95_low", "min"), max_ci_high=("ci_95_high", "max"))
     links = "\n".join(f"- [Figure: {path.stem}](figures/{path.name})" for path in figures)
+    weather_section = ""
+    weather_table_link = ""
+    if weather is not None:
+        weather_summary = weather.groupby(["model", "track"], as_index=False).agg(
+            observed_weather_hindsight_upper_bound_mae=("observed_weather_hindsight_upper_bound_mae", "mean"),
+            no_weather_mae=("no_weather_mae", "mean"),
+            mae_improvement_vs_no_weather=("mae_improvement_vs_no_weather", "mean"),
+        ).sort_values(["track", "model"])
+        weather_section = (
+            "## Observed-weather hindsight upper bound\n\n"
+            "`observed_weather_hindsight_upper_bound` joins the realized target-hour weather fields to each forecast target. "
+            "It is a sensitivity analysis only: observed future weather was unavailable in live operation, is **not** forecast-vintage weather, and cannot be interpreted as an operational forecast-input result. "
+            "Its gains are larger day-ahead than two-hour in this source; archived forecast-vintage weather remains required before making an operational weather claim.\n\n"
+            + weather_summary.to_markdown(index=False, floatfmt=".4f") + "\n\n"
+        )
+        weather_table_link = "- [Observed-weather hindsight sensitivity](tables/weather_sensitivity.csv)\n"
     report.write_text(
         "# Citi Bike Forecast Benchmark — Core No-Weather Report\n\n"
         "## Design\n\n"
@@ -95,9 +123,11 @@ def _core_report(run_id: str, figures: list[Path], predictions: pd.DataFrame, fo
         "## Inventory decisions\n\n" + decision_operational.to_markdown(index=False, floatfmt=".4f") + "\n\n"
         "Each station-day searches every feasible starting inventory using the model’s day-ahead path, then replays realized aggregate hourly demand. Regret is relative to a realized-path oracle. Pickup-then-return is the main aggregate convention; reversed ordering is a reported sensitivity, not an operational assertion. Truck routing is outside scope.\n\n"
         "## Limits and next work\n\n"
-        "Observed trips are treated as realized demand, so stockouts/capacity constraints can censor latent demand. The source’s repeated/nonexistent DST labels and three raw events outside the 2018 scope are documented in the data audit. The required observed-weather experiment has **not** run yet; when run it will be labeled `observed_weather_hindsight_upper_bound` and cannot be interpreted as forecast-vintage operational weather. Archived GBFS availability and forecast-vintage weather are future work. The optional Poisson GRU remains gated on earlier audits.\n\n"
+        "Observed trips are treated as realized demand, so stockouts/capacity constraints can censor latent demand. The source’s repeated/nonexistent DST labels and three raw events outside the 2018 scope are documented in the data audit. Archived GBFS availability and forecast-vintage weather are future work. The optional Poisson GRU remains gated on earlier audits.\n\n"
+        + weather_section +
         "## Machine-readable outputs\n\n"
-        "- [Forecast metrics](tables/forecast_metrics.csv)\n- [Station metrics](tables/station_metrics.csv)\n- [Bootstrap comparisons](tables/bootstrap_comparisons.csv)\n- [Decision metrics](tables/decision_metrics.csv)\n- [Runtime metrics](tables/runtime_metrics.csv)\n- [Data quality](tables/data_quality.csv)\n\n"
+        "- [Forecast metrics](tables/forecast_metrics.csv)\n- [Station metrics](tables/station_metrics.csv)\n- [Bootstrap comparisons](tables/bootstrap_comparisons.csv)\n- [Decision metrics](tables/decision_metrics.csv)\n- [Runtime metrics](tables/runtime_metrics.csv)\n- [Data quality](tables/data_quality.csv)\n"
+        + weather_table_link + "\n"
         "## Figures\n\n" + links + "\n",
         encoding="utf-8",
     )
@@ -117,5 +147,9 @@ def build_report(config_path: str | Path) -> dict[str, str]:
         raise RuntimeError(f"Report requires generated tables: {', '.join(missing)}")
     predictions = pd.read_parquet(PROJECT_ROOT / "artifacts/predictions" / f"{run_id}.parquet")
     figures = _core_figures(run_id, predictions, pd.read_csv(required["forecast_metrics.csv"]), pd.read_csv(required["station_metrics.csv"]), pd.read_csv(required["decision_metrics.csv"]), pd.read_csv(required["runtime_metrics.csv"]))
-    report = _core_report(run_id, figures, predictions, pd.read_csv(required["forecast_metrics.csv"]), pd.read_csv(required["bootstrap_comparisons.csv"]), pd.read_csv(required["decision_metrics.csv"]))
+    weather_path = tables / "weather_sensitivity.csv"
+    weather = pd.read_csv(weather_path) if weather_path.exists() else None
+    if weather is not None:
+        figures.append(_weather_figure(weather))
+    report = _core_report(run_id, figures, predictions, pd.read_csv(required["forecast_metrics.csv"]), pd.read_csv(required["bootstrap_comparisons.csv"]), pd.read_csv(required["decision_metrics.csv"]), weather)
     return {"report": str(report.relative_to(PROJECT_ROOT)), "figure_count": str(len(figures))}

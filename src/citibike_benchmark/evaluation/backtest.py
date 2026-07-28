@@ -2,6 +2,7 @@
 from __future__ import annotations
 
 import json
+import shutil
 from dataclasses import dataclass
 from pathlib import Path
 from time import perf_counter
@@ -21,7 +22,7 @@ from citibike_benchmark.config import load_config
 from citibike_benchmark.constants import PROJECT_ROOT, TIMEZONE
 from citibike_benchmark.evaluation.metrics import forecast_metrics
 from citibike_benchmark.evaluation.bootstrap import paired_mean_difference_ci
-from citibike_benchmark.utils.io import sha256_file
+from citibike_benchmark.utils.io import sha256_file, write_json
 from citibike_benchmark.utils.reproducibility import enrich_experiment_manifest
 
 TARGETS = ("pickups", "returns")
@@ -126,9 +127,11 @@ def _prepare_feature_panel(panel: pd.DataFrame) -> pd.DataFrame:
 def _examples_for_days(features: pd.DataFrame, days: tuple[object, ...], track: str) -> pd.DataFrame:
     targets = features.loc[features["date"].isin(set(days)) & features["data_complete"]].copy()
     targets = targets.rename(columns={"pickups": "actual_pickups", "returns": "actual_returns"})
+    weather_columns = [column for column in targets.columns if column.startswith("weather_")]
     targets = targets.loc[:, [
         "station_id", "timestamp", "actual_pickups", "actual_returns",
         "seasonal_pickups", "seasonal_returns", "historical_pickups", "historical_returns", "recent_pickups", "recent_returns",
+        *weather_columns,
     ]]
     targets["target_hour"] = targets["timestamp"].dt.hour
     targets["target_day_of_week"] = targets["timestamp"].dt.dayofweek
@@ -162,7 +165,21 @@ def _seasonal_baseline(examples: pd.DataFrame, target: str) -> np.ndarray:
 def _feature_columns(examples: pd.DataFrame) -> list[str]:
     fixed = ["station_id", "horizon_step", "target_hour", "target_day_of_week", "target_is_weekend", "station_capacity", "recent_pickup_return_balance"]
     lag_and_rolling = [column for column in examples.columns if "_lag_" in column or "_rolling_" in column]
-    return [column for column in [*fixed, *lag_and_rolling] if column in examples.columns]
+    weather = [column for column in examples.columns if column.startswith("weather_")]
+    return [column for column in [*fixed, *lag_and_rolling, *weather] if column in examples.columns]
+
+
+def _attach_observed_weather(panel: pd.DataFrame) -> pd.DataFrame:
+    """Attach target-time observed weather for hindsight-only sensitivity."""
+    source = PROJECT_ROOT / "data/external/variational-poisson-rnn/data/raw/weather2018_60min.csv"
+    weather = pd.read_csv(source, parse_dates=["date"])
+    weather["date"] = weather["date"].dt.date
+    weather = weather.rename(columns={column: f"weather_{column}" for column in weather.columns if column not in {"date", "hour"}})
+    merged = panel.merge(weather, on=["date", "hour"], how="left", validate="many_to_one")
+    weather_columns = [column for column in merged.columns if column.startswith("weather_")]
+    if merged[weather_columns].isna().any().any():
+        raise ValueError("Observed-weather sensitivity has missing weather joins")
+    return merged
 
 
 def _poisson_glm(train: pd.DataFrame, predict: pd.DataFrame, target: str, alpha: float) -> tuple[np.ndarray, Pipeline, float, float]:
@@ -325,21 +342,122 @@ def bootstrap_comparisons(predictions: pd.DataFrame, seed: int, replicates: int)
     return pd.DataFrame(rows)
 
 
+def _run_table_paths(run_id: str) -> dict[str, Path]:
+    """Return isolated, immutable-per-run table locations.
+
+    The contract also requires canonical table names under ``reports/tables``.
+    Those names always represent the primary no-weather core comparison; an
+    auxiliary weather experiment must not replace the evidence linked by the
+    main report.  Every run additionally receives its own table directory.
+    """
+    directory = PROJECT_ROOT / "reports/runs" / run_id
+    return {
+        "forecast_metrics": directory / "forecast_metrics.csv",
+        "station_metrics": directory / "station_metrics.csv",
+        "bootstrap_comparisons": directory / "bootstrap_comparisons.csv",
+        "runtime_metrics": directory / "runtime_metrics.csv",
+    }
+
+
+def _write_evaluation_tables(
+    run_id: str,
+    predictions: pd.DataFrame,
+    runtime_rows: list[dict[str, Any]],
+    seed: int,
+    replicates: int,
+    primary_no_weather: bool,
+) -> dict[str, Path]:
+    """Materialize metrics from saved predictions without refitting models."""
+    run_tables = _run_table_paths(run_id)
+    for path in run_tables.values():
+        path.parent.mkdir(parents=True, exist_ok=True)
+    metrics, station_metrics = _metrics_tables(predictions)
+    metrics.to_csv(run_tables["forecast_metrics"], index=False)
+    station_metrics.to_csv(run_tables["station_metrics"], index=False)
+    bootstrap_comparisons(predictions, seed, replicates).to_csv(run_tables["bootstrap_comparisons"], index=False)
+    pd.DataFrame(runtime_rows).to_csv(run_tables["runtime_metrics"], index=False)
+    if primary_no_weather:
+        canonical = PROJECT_ROOT / "reports/tables"
+        canonical.mkdir(parents=True, exist_ok=True)
+        for name, source in run_tables.items():
+            shutil.copy2(source, canonical / f"{name}.csv")
+    return run_tables
+
+
+def _cached_runtime_rows(run_id: str) -> list[dict[str, Any]]:
+    manifest_path = PROJECT_ROOT / "artifacts/run_manifests" / f"{run_id}.json"
+    if not manifest_path.exists():
+        raise RuntimeError(f"Cached predictions require their audit manifest: {manifest_path}")
+    rows = json.loads(manifest_path.read_text(encoding="utf-8")).get("runtime_rows")
+    if not isinstance(rows, list):
+        raise RuntimeError(f"Cached prediction manifest has no runtime rows: {manifest_path}")
+    return rows
+
+
+def _write_weather_sensitivity(run_id: str, predictions: pd.DataFrame) -> tuple[Path, Path]:
+    """Write the clearly separated observed-weather comparison table."""
+    core_config = PROJECT_ROOT / "configs/core.yaml"
+    core_run_id = f"core_no_weather_{sha256_file(core_config)[:12]}"
+    core_path = PROJECT_ROOT / "artifacts/predictions" / f"{core_run_id}.parquet"
+    if not core_path.exists():
+        raise RuntimeError("Observed-weather sensitivity requires accepted no-weather core predictions")
+
+    def summary(frame: pd.DataFrame) -> pd.DataFrame:
+        rows = []
+        for keys, group in frame.groupby(["model", "track", "target_type"], sort=True):
+            rows.append({"model": keys[0], "track": keys[1], "target_type": keys[2], "mae": forecast_metrics(group.actual.to_numpy(), group.prediction.to_numpy())["mae"]})
+        return pd.DataFrame(rows)
+
+    observed_summary = summary(predictions).rename(columns={"mae": "observed_weather_hindsight_upper_bound_mae"})
+    baseline_summary = summary(pd.read_parquet(core_path)).rename(columns={"mae": "no_weather_mae"})
+    sensitivity = observed_summary.merge(baseline_summary, on=["model", "track", "target_type"], how="left")
+    sensitivity["mae_improvement_vs_no_weather"] = sensitivity["no_weather_mae"] - sensitivity["observed_weather_hindsight_upper_bound_mae"]
+    sensitivity["interpretation"] = "Observed future weather hindsight upper bound; not forecast-vintage operational input."
+    canonical_path = PROJECT_ROOT / "reports/tables/weather_sensitivity.csv"
+    canonical_path.parent.mkdir(parents=True, exist_ok=True)
+    run_path = _run_table_paths(run_id)["forecast_metrics"].parent / "weather_sensitivity.csv"
+    sensitivity.to_csv(canonical_path, index=False)
+    sensitivity.to_csv(run_path, index=False)
+    return canonical_path, run_path
+
+
+def _refresh_manifest_output_hashes(run_id: str, prediction_path: Path, run_tables: dict[str, Path], weather_paths: tuple[Path, ...] = ()) -> None:
+    """Record cache-materialized table paths without changing model results."""
+    manifest_path = PROJECT_ROOT / "artifacts/run_manifests" / f"{run_id}.json"
+    manifest = json.loads(manifest_path.read_text(encoding="utf-8"))
+    paths = (prediction_path, *run_tables.values(), *weather_paths)
+    manifest["output_file_hashes"] = {str(path.relative_to(PROJECT_ROOT)): sha256_file(path) for path in paths}
+    write_json(manifest_path, manifest)
+
+
 def run_backtest(config_path: str | Path) -> dict[str, Any]:
-    """Run/reuse a complete no-weather chronological forecast backtest."""
+    """Run or safely materialize a chronological forecast backtest."""
     config_path = Path(config_path)
     if not config_path.is_absolute():
         config_path = PROJECT_ROOT / config_path
     config = load_config(config_path)
-    if config["weather"]["enabled"]:
-        raise ValueError("Main backtest requires weather.enabled=false; weather is a separate hindsight experiment")
+    weather_enabled = bool(config["weather"]["enabled"])
+    if weather_enabled and config["weather"].get("experiment_name") != "observed_weather_hindsight_upper_bound":
+        raise ValueError("Weather runs must use the observed_weather_hindsight_upper_bound label")
     panel = load_panel(config)
+    if weather_enabled:
+        panel = _attach_observed_weather(panel)
     features = _prepare_feature_panel(panel)
     config_hash = sha256_file(config_path)
     run_id = f"{config['run']['name']}_{config_hash[:12]}"
     prediction_path = PROJECT_ROOT / "artifacts/predictions" / f"{run_id}.parquet"
-    runtime_path = PROJECT_ROOT / "reports/tables/runtime_metrics.csv"
     if prediction_path.exists():
+        cached_predictions = pd.read_parquet(prediction_path)
+        run_tables = _write_evaluation_tables(
+            run_id,
+            cached_predictions,
+            _cached_runtime_rows(run_id),
+            int(config["run"]["seed"]),
+            int(config["evaluation"]["bootstrap_replicates"]),
+            primary_no_weather=not weather_enabled,
+        )
+        weather_paths = _write_weather_sensitivity(run_id, cached_predictions) if weather_enabled else ()
+        _refresh_manifest_output_hashes(run_id, prediction_path, run_tables, weather_paths)
         return {"run_id": run_id, "prediction_path": str(prediction_path.relative_to(PROJECT_ROOT)), "cached": True}
     folds = make_day_folds(panel, config)
     all_predictions: list[pd.DataFrame] = []
@@ -381,19 +499,32 @@ def run_backtest(config_path: str | Path) -> dict[str, Any]:
     predictions = pd.concat(all_predictions, ignore_index=True)
     prediction_path.parent.mkdir(parents=True, exist_ok=True)
     predictions.to_parquet(prediction_path, index=False)
-    metrics, station_metrics = _metrics_tables(predictions)
+    run_tables = _write_evaluation_tables(
+        run_id,
+        predictions,
+        runtime_rows,
+        int(config["run"]["seed"]),
+        int(config["evaluation"]["bootstrap_replicates"]),
+        primary_no_weather=not weather_enabled,
+    )
     tables = PROJECT_ROOT / "reports/tables"
     tables.mkdir(parents=True, exist_ok=True)
-    metrics.to_csv(tables / "forecast_metrics.csv", index=False)
-    station_metrics.to_csv(tables / "station_metrics.csv", index=False)
-    bootstrap_comparisons(predictions, int(config["run"]["seed"]), int(config["evaluation"]["bootstrap_replicates"])).to_csv(tables / "bootstrap_comparisons.csv", index=False)
-    pd.DataFrame(runtime_rows).to_csv(runtime_path, index=False)
+    weather_paths: tuple[Path, ...] = ()
+    if weather_enabled:
+        weather_paths = _write_weather_sensitivity(run_id, predictions)
     manifest = {
         "timestamp_timezone": TIMEZONE,
-        "weather_enabled": False, "station_ids": sorted(panel["station_id"].unique().tolist()),
+        "weather_enabled": weather_enabled, "weather_experiment_label": config["weather"].get("experiment_name") if weather_enabled else None, "station_ids": sorted(panel["station_id"].unique().tolist()),
         "folds": [{"fold": fold.fold, "train": [str(fold.train_days[0]), str(fold.train_days[-1])], "validation": [str(fold.validation_days[0]), str(fold.validation_days[-1])], "test": [str(fold.test_days[0]), str(fold.test_days[-1])]} for fold in folds],
         "prediction_path": str(prediction_path.relative_to(PROJECT_ROOT)),
-        "output_file_hashes": {str(path.relative_to(PROJECT_ROOT)): sha256_file(path) for path in (prediction_path, tables / "forecast_metrics.csv", tables / "station_metrics.csv", tables / "bootstrap_comparisons.csv", runtime_path)},
+        "output_file_hashes": {
+            str(path.relative_to(PROJECT_ROOT)): sha256_file(path)
+            for path in (
+                prediction_path,
+                *run_tables.values(),
+                *weather_paths,
+            )
+        },
         "runtime_seconds": float(pd.DataFrame(runtime_rows)["fit_seconds"].sum() + pd.DataFrame(runtime_rows)["prediction_seconds"].sum()),
         "random_seeds": {"global": int(config["run"]["seed"]), "bootstrap": int(config["run"]["seed"])},
         "warnings": ["GLM convergence warnings, if emitted by sklearn, are retained in execution logs.", "60 target rows were excluded uniformly in fold 1 because seasonal-naive's seven-day lag reaches an explicit DST-ambiguous source hour."],

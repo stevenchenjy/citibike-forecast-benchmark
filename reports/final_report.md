@@ -46,7 +46,20 @@ Each station-day searches every feasible starting inventory using the model’s 
 
 ## Limits and next work
 
-Observed trips are treated as realized demand, so stockouts/capacity constraints can censor latent demand. The source’s repeated/nonexistent DST labels and three raw events outside the 2018 scope are documented in the data audit. The required observed-weather experiment has **not** run yet; when run it will be labeled `observed_weather_hindsight_upper_bound` and cannot be interpreted as forecast-vintage operational weather. Archived GBFS availability and forecast-vintage weather are future work. The optional Poisson GRU remains gated on earlier audits.
+Observed trips are treated as realized demand, so stockouts/capacity constraints can censor latent demand. The source’s repeated/nonexistent DST labels and three raw events outside the 2018 scope are documented in the data audit. Archived GBFS availability and forecast-vintage weather are future work. The optional Poisson GRU remains gated on earlier audits.
+
+## Observed-weather hindsight upper bound
+
+`observed_weather_hindsight_upper_bound` joins the realized target-hour weather fields to each forecast target. It is a sensitivity analysis only: observed future weather was unavailable in live operation, is **not** forecast-vintage weather, and cannot be interpreted as an operational forecast-input result. Its gains are larger day-ahead than two-hour in this source; archived forecast-vintage weather remains required before making an operational weather claim.
+
+| model              | track     |   observed_weather_hindsight_upper_bound_mae |   no_weather_mae |   mae_improvement_vs_no_weather |
+|:-------------------|:----------|---------------------------------------------:|-----------------:|--------------------------------:|
+| historical_average | day_ahead |                                       4.0896 |           4.0896 |                          0.0000 |
+| lightgbm_poisson   | day_ahead |                                       3.0802 |           3.5136 |                          0.4334 |
+| poisson_glm        | day_ahead |                                       4.7936 |           6.4753 |                          1.6817 |
+| historical_average | two_hour  |                                       4.0896 |           4.0896 |                          0.0000 |
+| lightgbm_poisson   | two_hour  |                                       2.8305 |           2.9036 |                          0.0731 |
+| poisson_glm        | two_hour  |                                       4.1771 |           4.8428 |                          0.6657 |
 
 ## Machine-readable outputs
 
@@ -56,6 +69,7 @@ Observed trips are treated as realized demand, so stockouts/capacity constraints
 - [Decision metrics](tables/decision_metrics.csv)
 - [Runtime metrics](tables/runtime_metrics.csv)
 - [Data quality](tables/data_quality.csv)
+- [Observed-weather hindsight sensitivity](tables/weather_sensitivity.csv)
 
 ## Figures
 
@@ -69,3 +83,4 @@ Observed trips are treated as realized demand, so stockouts/capacity constraints
 - [Figure: core_no_weather_e474ce35b5c7_station_402_forecast](figures/core_no_weather_e474ce35b5c7_station_402_forecast.png)
 - [Figure: core_no_weather_e474ce35b5c7_station_519_forecast](figures/core_no_weather_e474ce35b5c7_station_519_forecast.png)
 - [Figure: core_no_weather_e474ce35b5c7_lightgbm_importance](figures/core_no_weather_e474ce35b5c7_lightgbm_importance.png)
+- [Figure: observed_weather_hindsight_upper_bound_weather_sensitivity](figures/observed_weather_hindsight_upper_bound_weather_sensitivity.png)

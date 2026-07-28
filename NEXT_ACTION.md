@@ -1,7 +1,7 @@
 # Next Action
 
 ```bash
-uv run --no-editable python -m citibike_benchmark.cli backtest --config configs/observed_weather_hindsight_upper_bound.yaml
+uv sync --extra dev --extra deep --no-editable --reinstall-package citibike-forecast-benchmark
 ```
 
-Implement and run the strictly separate observed-weather sensitivity for historical/calendar where meaningful, Poisson GLM, and LightGBM. It must retain the core folds/stations, use observed weather only, and be labeled `observed_weather_hindsight_upper_bound` in every output and report statement.
+Install the declared modern PyTorch optional dependency before implementing the gated compact Poisson GRU. Preserve the accepted no-weather core and weather-sensitivity artifacts; the GRU must run as a separate no-weather model addition with deterministic CPU/MPS-safe execution, Poisson NLL, early stopping, and a capped training budget.
