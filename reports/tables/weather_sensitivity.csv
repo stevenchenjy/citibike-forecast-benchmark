@@ -1,0 +1,13 @@
+model,track,target_type,observed_weather_hindsight_upper_bound_mae,no_weather_mae,mae_improvement_vs_no_weather,interpretation
+historical_average,day_ahead,pickups,4.121239774312645,4.121239774312645,0.0,Observed future weather hindsight upper bound; not forecast-vintage operational input.
+historical_average,day_ahead,returns,4.0579814439125075,4.0579814439125075,0.0,Observed future weather hindsight upper bound; not forecast-vintage operational input.
+historical_average,two_hour,pickups,4.121239774312645,4.121239774312645,0.0,Observed future weather hindsight upper bound; not forecast-vintage operational input.
+historical_average,two_hour,returns,4.0579814439125075,4.0579814439125075,0.0,Observed future weather hindsight upper bound; not forecast-vintage operational input.
+lightgbm_poisson,day_ahead,pickups,3.08439096203062,3.5207448472264393,0.4363538851958193,Observed future weather hindsight upper bound; not forecast-vintage operational input.
+lightgbm_poisson,day_ahead,returns,3.076007957907544,3.5065099696017974,0.4305020116942533,Observed future weather hindsight upper bound; not forecast-vintage operational input.
+lightgbm_poisson,two_hour,pickups,2.8269782720483425,2.8924937165242888,0.06551544447594626,Observed future weather hindsight upper bound; not forecast-vintage operational input.
+lightgbm_poisson,two_hour,returns,2.834042845599463,2.9146776695618017,0.08063482396233868,Observed future weather hindsight upper bound; not forecast-vintage operational input.
+poisson_glm,day_ahead,pickups,4.696658456130477,6.376338382220152,1.6796799260896753,Observed future weather hindsight upper bound; not forecast-vintage operational input.
+poisson_glm,day_ahead,returns,4.890550420313723,6.574248210837209,1.6836977905234862,Observed future weather hindsight upper bound; not forecast-vintage operational input.
+poisson_glm,two_hour,pickups,4.151320998257823,4.808745577019989,0.657424578762166,Observed future weather hindsight upper bound; not forecast-vintage operational input.
+poisson_glm,two_hour,returns,4.202855135101717,4.876784829544138,0.6739296944424211,Observed future weather hindsight upper bound; not forecast-vintage operational input.

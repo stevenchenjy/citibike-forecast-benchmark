@@ -12,6 +12,26 @@ from citibike_benchmark.constants import PROJECT_ROOT
 from citibike_benchmark.evaluation.metrics import forecast_metrics
 from citibike_benchmark.utils.io import sha256_file
 
+MODEL_LABELS = {
+    "seasonal_naive": "Seasonal naive",
+    "historical_average": "Historical average",
+    "recent_average": "Recent average",
+    "poisson_glm": "Poisson GLM",
+    "lightgbm_poisson": "LightGBM Poisson",
+    "poisson_gru": "Compact Poisson GRU",
+}
+TRACK_LABELS = {"two_hour": "Two-hour ahead", "day_ahead": "Day-ahead"}
+
+
+def _display_labels(frame: pd.DataFrame) -> pd.DataFrame:
+    """Replace implementation identifiers only in reader-facing visualizations."""
+    result = frame.copy()
+    if "model" in result:
+        result["model"] = result["model"].map(MODEL_LABELS).fillna(result["model"])
+    if "track" in result:
+        result["track"] = result["track"].map(TRACK_LABELS).fillna(result["track"])
+    return result
+
 
 def _save(fig: plt.Figure, path: Path) -> Path:
     fig.tight_layout()
@@ -24,14 +44,14 @@ def _core_figures(run_id: str, predictions: pd.DataFrame, forecast: pd.DataFrame
     figures = PROJECT_ROOT / "reports/figures"
     figures.mkdir(parents=True, exist_ok=True)
     output: list[Path] = []
-    overall = forecast.query("slice_type == 'overall' and slice_value == 'all'").groupby(["model", "track"], as_index=False).mae.mean()
+    overall = _display_labels(forecast.query("slice_type == 'overall' and slice_value == 'all'").groupby(["model", "track"], as_index=False).mae.mean())
     pivot = overall.pivot(index="model", columns="track", values="mae").sort_index()
     output.append(_save(pivot.plot.bar(figsize=(9, 4), rot=25, ylabel="MAE", title="Overall MAE by model and horizon track").get_figure(), figures / f"{run_id}_overall_mae.png"))
-    target = forecast.query("slice_type == 'overall' and slice_value == 'all'").groupby(["model", "target_type"], as_index=False).mae.mean()
+    target = _display_labels(forecast.query("slice_type == 'overall' and slice_value == 'all'").groupby(["model", "target_type"], as_index=False).mae.mean())
     output.append(_save(target.pivot(index="model", columns="target_type", values="mae").sort_index().plot.bar(figsize=(9, 4), rot=25, ylabel="MAE", title="Pickup, return, and combined demand MAE").get_figure(), figures / f"{run_id}_targets.png"))
-    peak = forecast.query("slice_type == 'period' and slice_value == 'peak'").groupby(["model", "track"], as_index=False).mae.mean()
+    peak = _display_labels(forecast.query("slice_type == 'period' and slice_value == 'peak'").groupby(["model", "track"], as_index=False).mae.mean())
     output.append(_save(peak.pivot(index="model", columns="track", values="mae").sort_index().plot.bar(figsize=(9, 4), rot=25, ylabel="Peak-period MAE").get_figure(), figures / f"{run_id}_peak_mae.png"))
-    heat = station.query("target_type == 'combined'").groupby(["station_id", "model"], as_index=False).mae.mean().pivot(index="station_id", columns="model", values="mae").sort_index()
+    heat = _display_labels(station.query("target_type == 'combined'").groupby(["station_id", "model"], as_index=False).mae.mean()).pivot(index="station_id", columns="model", values="mae").sort_index()
     fig, ax = plt.subplots(figsize=(10, 9))
     image = ax.imshow(heat.to_numpy(), aspect="auto", cmap="viridis")
     ax.set_xticks(range(len(heat.columns)), heat.columns, rotation=30, ha="right")
@@ -39,10 +59,10 @@ def _core_figures(run_id: str, predictions: pd.DataFrame, forecast: pd.DataFrame
     ax.set_title("Station-level combined-demand MAE")
     fig.colorbar(image, ax=ax, label="MAE")
     output.append(_save(fig, figures / f"{run_id}_station_heatmap.png"))
-    operational = decision.query("ordering == 'pickups_then_returns'").groupby("model", as_index=True)[["total_failures", "average_regret_vs_oracle"]].sum().sort_index()
+    operational = _display_labels(decision.query("ordering == 'pickups_then_returns'")).groupby("model", as_index=True)[["total_failures", "average_regret_vs_oracle"]].sum().sort_index()
     decision_axes = operational.plot.bar(subplots=True, figsize=(9, 6), legend=False, rot=25, title=["Decision failures", "Oracle regret (sum of fold means)"])
     output.append(_save(decision_axes[0].get_figure(), figures / f"{run_id}_decisions.png"))
-    runtime_plot = runtime.groupby("model", as_index=True).fit_seconds.sum().sort_values()
+    runtime_plot = _display_labels(runtime).groupby("model", as_index=True).fit_seconds.sum().sort_values()
     output.append(_save(runtime_plot.plot.bar(figsize=(9, 4), ylabel="Fit seconds", title="Model fit time").get_figure(), figures / f"{run_id}_runtime.png"))
     final_fold = int(predictions["fold"].max())
     day_ahead = predictions.query("track == 'day_ahead' and fold == @final_fold and model in ['lightgbm_poisson', 'historical_average']").copy()
@@ -60,7 +80,7 @@ def _core_figures(run_id: str, predictions: pd.DataFrame, forecast: pd.DataFrame
             axis.plot(actual.horizon_step, actual.actual, color="black", label="actual")
             for model, color in (("historical_average", "tab:blue"), ("lightgbm_poisson", "tab:orange")):
                 model_rows = data[data.model.eq(model)]
-                axis.plot(model_rows.horizon_step, model_rows.prediction, label=model, color=color)
+                axis.plot(model_rows.horizon_step, model_rows.prediction, label=MODEL_LABELS[model], color=color)
             axis.set_ylabel(target_type)
         axes[0].legend(ncol=3, fontsize=8)
         axes[1].set_xlabel("Day-ahead hour step")
@@ -77,7 +97,7 @@ def _weather_figure(weather: pd.DataFrame) -> Path:
     """Plot the auxiliary observed-weather result without mixing it into core figures."""
     figures = PROJECT_ROOT / "reports/figures"
     figures.mkdir(parents=True, exist_ok=True)
-    summary = weather.groupby(["model", "track"], as_index=False)["mae_improvement_vs_no_weather"].mean()
+    summary = _display_labels(weather.groupby(["model", "track"], as_index=False)["mae_improvement_vs_no_weather"].mean())
     pivot = summary.pivot(index="model", columns="track", values="mae_improvement_vs_no_weather").sort_index()
     return _save(
         pivot.plot.bar(figsize=(9, 4), rot=25, ylabel="MAE improvement versus no-weather", title="Observed-weather hindsight upper bound").get_figure(),
@@ -110,7 +130,7 @@ def _optional_gru_section() -> tuple[str, Path | None]:
     summary.merge(decisions, on="model", how="left").to_csv(summary_path, index=False)
     figures = PROJECT_ROOT / "reports/figures"
     figures.mkdir(parents=True, exist_ok=True)
-    pivot = summary.pivot(index="model", columns="track", values="mae").sort_index()
+    pivot = _display_labels(summary).pivot(index="model", columns="track", values="mae").sort_index()
     figure = _save(
         pivot.plot.bar(figsize=(8, 4), rot=20, ylabel="MAE", title="Optional compact Poisson GRU versus historical average").get_figure(),
         figures / f"{run_id}_comparison.png",

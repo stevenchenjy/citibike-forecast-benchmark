@@ -36,6 +36,16 @@ The primary comparison excludes weather and uses the same 30 stations, chronolog
 
 Read the complete result, uncertainty intervals, station-level outputs, and figures in the [final report](reports/final_report.md).
 
+For a paper-style walkthrough of the research question, methods, results, visual appendix, and limitations, read [**Research Report**](docs/RESEARCH_REPORT.md).
+
+| Forecast accuracy | Inventory outcome |
+| --- | --- |
+| ![Overall MAE by model and horizon](reports/figures/core_no_weather_e474ce35b5c7_overall_mae.png) | ![Decision failures and oracle regret](reports/figures/core_no_weather_e474ce35b5c7_decisions.png) |
+
+Observed-weather sensitivity is displayed separately because it is a hindsight upper bound, not an operational model input:
+
+![Observed-weather hindsight sensitivity](reports/figures/observed_weather_hindsight_upper_bound_weather_sensitivity.png)
+
 ## Experiment design
 
 | Component | Design |
@@ -126,6 +136,8 @@ make gru
 - [Source data audit](reports/audit/data_audit.md): inspected schemas, mappings, quality checks, DST policy, and source pin.
 - [Leakage audit](reports/audit/leakage_audit.md): origin/target timestamp checks and feature-availability controls.
 - [Reproducibility audit](reports/audit/reproducibility_audit.md): commands, versions, hashes, manifests, and run evidence.
+- [Research report](docs/RESEARCH_REPORT.md): GitHub-readable methods, results, visual appendix, and limitations.
+- `reports/figures/` and `reports/tables/`: the versioned publication package for the accepted core, observed-weather, and GRU results.
 - `artifacts/predictions/`, `artifacts/models/`, and `artifacts/run_manifests/`: saved predictions, serialized models, and audit manifests (generated locally and intentionally gitignored).
 
 The repository is complete and resumable; see [PROJECT_STATE.md](PROJECT_STATE.md) for the verified milestone state.

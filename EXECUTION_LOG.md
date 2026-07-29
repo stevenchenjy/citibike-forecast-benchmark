@@ -75,3 +75,10 @@
 - Fixed the smoke report’s former fold-2 assumption and made report/table paths profile-local outside the explicitly named `core_no_weather` primary run. Fixed the source-audit generator so its canonical-panel validation section survives a repeat `make inspect`.
 - Performed a final local-link audit of `reports/final_report.md`: no missing links. Recomputed every recorded output hash for `core_no_weather_e474ce35b5c7`, `observed_weather_hindsight_upper_bound_a4abb742757a`, and `poisson_gru_no_weather_0eab625edb6e`: no mismatches. Confirmed canonical forecast/station/bootstrap/runtime/decision tables contain only the five required no-weather models.
 - Acceptance criteria are satisfied. `PROJECT_STATE.md` is `COMPLETE` and `NEXT_ACTION.md` records that no required action remains.
+
+## 2026-07-28 — GitHub research presentation package
+
+- Expanded the root README into a reader-facing research summary with headline results, methods, model definitions, decision evaluation, observed-weather caveat, and reproducibility commands.
+- Added `docs/RESEARCH_REPORT.md`, a GitHub-readable paper-style report with data provenance, DST policy, leakage controls, chronological folds, model definitions, forecast and decision results, weather/GRU sections, limitations, and a visual appendix.
+- Promoted the accepted core, weather, and GRU figures plus the report-linked CSV tables into a small versioned publication package. Smoke integration figures remain generated-only so the public narrative stays focused on the accepted core experiment.
+- Regenerated figures with human-readable model and horizon labels; visual inspection, `pytest` (21 passed), Markdown-link checks, and `git diff --check` passed before publication.
