@@ -23,6 +23,25 @@ reports/tables/**
 reports/runs/**
 reports/*_report.md
 
+# Accepted publication assets are an intentional exception: they make the
+# GitHub repository readable as a research report without requiring a local run.
+!reports/figures/core_no_weather_e474ce35b5c7_*.png
+!reports/figures/observed_weather_hindsight_upper_bound_weather_sensitivity.png
+!reports/figures/poisson_gru_no_weather_0eab625edb6e_comparison.png
+!reports/tables/forecast_metrics.csv
+!reports/tables/station_metrics.csv
+!reports/tables/bootstrap_comparisons.csv
+!reports/tables/decision_metrics.csv
+!reports/tables/runtime_metrics.csv
+!reports/tables/data_quality.csv
+!reports/tables/weather_sensitivity.csv
+!reports/runs/poisson_gru_no_weather_0eab625edb6e/
+!reports/runs/poisson_gru_no_weather_0eab625edb6e/forecast_metrics.csv
+!reports/runs/poisson_gru_no_weather_0eab625edb6e/bootstrap_comparisons.csv
+!reports/runs/poisson_gru_no_weather_0eab625edb6e/decision_metrics.csv
+!reports/runs/poisson_gru_no_weather_0eab625edb6e/runtime_metrics.csv
+!reports/runs/poisson_gru_no_weather_0eab625edb6e/gru_summary.csv
+
 # Preserve the repository layout without versioning generated content.
 !data/external/.gitkeep
 !data/raw/.gitkeep
